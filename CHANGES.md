@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### New
 
+### Changed
+
+### Fixed
+
+## 0.1.0 - 2026-03-04
+### New
 - Initial v2 rewrite of legacy cisco_temperature override
 - Enhanced sensor descriptions (entPhysicalDescr + entPhysicalName)
 - Temperature check with CISCO-ENTITY-SENSOR-MIB and CISCO-ENVMON-MIB support
@@ -16,6 +22,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Device-provided threshold support for both checks
 - MKP packaging via oposs/mkp-builder GitHub Action
 
-### Changed
 
-### Fixed
