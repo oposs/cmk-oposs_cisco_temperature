@@ -254,7 +254,7 @@ def _discover_temperature(section) -> DiscoveryResult:
             yield Service(item=item)
 
 
-def _check_temperature(item, section) -> CheckResult:
+def _check_temperature(item, params, section) -> CheckResult:
     temp_parsed = section.get("8", {})
     if item not in temp_parsed:
         return
@@ -273,9 +273,11 @@ def _check_temperature(item, section) -> CheckResult:
     # Device state
     yield Result(state=dev_state, notice="Device status: %s" % state_readable)
 
-    # Temperature with device thresholds
-    dev_levels = data.get("dev_levels")
-    levels_upper = ("fixed", (dev_levels[0], dev_levels[1])) if dev_levels else None
+    # User-configured levels override device thresholds
+    levels_upper = params.get("levels")
+    if levels_upper is None:
+        dev_levels = data.get("dev_levels")
+        levels_upper = ("fixed", (dev_levels[0], dev_levels[1])) if dev_levels else None
 
     yield from check_levels(
         reading,
@@ -292,6 +294,8 @@ check_plugin_oposs_cisco_temperature = CheckPlugin(
     service_name="Cisco Temp %s",
     discovery_function=_discover_temperature,
     check_function=_check_temperature,
+    check_ruleset_name="oposs_cisco_temperature_params",
+    check_default_parameters={},
 )
 
 
@@ -308,7 +312,7 @@ def _discover_dom(section) -> DiscoveryResult:
                     yield Service(item=item)
 
 
-def _check_dom(item, section) -> CheckResult:
+def _check_dom(item, params, section) -> CheckResult:
     # Look up in dBm sensors first, then watts
     data = section.get("14", {}).get(item)
     unit = "dBm"
@@ -337,14 +341,18 @@ def _check_dom(item, section) -> CheckResult:
     else:
         dsname = "oposs_cisco_signal_power_dbm"
 
-    # Device thresholds
-    dev_levels = data.get("dev_levels") or (None, None, None, None)
-    levels_upper = None
-    levels_lower = None
-    if dev_levels[0] is not None and dev_levels[1] is not None:
-        levels_upper = ("fixed", (dev_levels[0], dev_levels[1]))
-    if len(dev_levels) >= 4 and dev_levels[2] is not None and dev_levels[3] is not None:
-        levels_lower = ("fixed", (dev_levels[2], dev_levels[3]))
+    # User-configured levels override device thresholds
+    levels_upper = params.get("levels_upper")
+    levels_lower = params.get("levels_lower")
+
+    if levels_upper is None:
+        dev_levels = data.get("dev_levels") or (None, None, None, None)
+        if dev_levels[0] is not None and dev_levels[1] is not None:
+            levels_upper = ("fixed", (dev_levels[0], dev_levels[1]))
+    if levels_lower is None:
+        dev_levels = data.get("dev_levels") or (None, None, None, None)
+        if len(dev_levels) >= 4 and dev_levels[2] is not None and dev_levels[3] is not None:
+            levels_lower = ("fixed", (dev_levels[2], dev_levels[3]))
 
     yield from check_levels(
         reading,
@@ -362,4 +370,6 @@ check_plugin_oposs_cisco_dom = CheckPlugin(
     service_name="Cisco DOM %s",
     discovery_function=_discover_dom,
     check_function=_check_dom,
+    check_ruleset_name="oposs_cisco_dom_params",
+    check_default_parameters={},
 )
