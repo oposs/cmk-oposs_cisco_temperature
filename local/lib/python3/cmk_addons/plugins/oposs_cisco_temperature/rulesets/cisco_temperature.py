@@ -42,7 +42,7 @@ def _form_spec_cisco_temperature():
 
 rule_spec_oposs_cisco_temperature_params = CheckParameters(
     title=Title("Cisco Temperature Monitoring"),
-    topic=Topic.ENVIRONMENT,
+    topic=Topic.ENVIRONMENTAL,
     name="oposs_cisco_temperature_params",
     parameter_form=_form_spec_cisco_temperature,
     condition=HostAndItemCondition(item_title=Title("Sensor name")),
