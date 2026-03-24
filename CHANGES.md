@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 ### Fixed
+
+## 0.1.1 - 2026-03-24
+### Fixed
 - Fix ruleset topic: use `Topic.ENVIRONMENTAL` instead of incorrect `Topic.ENVIRONMENT`
 
 ## 0.1.0 - 2026-03-04
