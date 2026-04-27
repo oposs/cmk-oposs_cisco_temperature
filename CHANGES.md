@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 ### Fixed
+
+## 0.1.2 - 2026-04-27
+### Fixed
 - Metric translations for legacy stock-Checkmk `cisco_temperature` and
   `cisco_temperature.dom` history are now keyed on the new
   `oposs_cisco_temperature` and `oposs_cisco_dom` check commands so they
