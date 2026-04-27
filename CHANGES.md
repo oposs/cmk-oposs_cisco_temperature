@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 ### Fixed
+- Metric translations for legacy stock-Checkmk `cisco_temperature` and
+  `cisco_temperature.dom` history are now keyed on the new
+  `oposs_cisco_temperature` and `oposs_cisco_dom` check commands so they
+  actually fire. Previously they were keyed on the stock commands and
+  Checkmk's translation lookup (an exact match on the live service's
+  current check command) silently missed them — leaving the legacy
+  `temp.rrd` / `*_signal_power_*.rrd` files orphaned in the per-service
+  directories. Note: continuous-line merge only happens if the service
+  name is unchanged across the rename; if you renamed the service when
+  switching off the stock plugin, the legacy RRD lives in a different
+  per-service directory and the translation cannot bridge it.
 
 ## 0.1.1 - 2026-03-24
 ### Fixed
