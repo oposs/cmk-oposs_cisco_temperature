@@ -2,16 +2,22 @@
 # Copyright (C) 2025 OETIKER+PARTNER AG - License: GNU General Public License v2
 
 """
-Enhanced Cisco temperature and DOM (Digital Optical Monitoring) check.
+Enhanced Cisco temperature, DOM and power check.
 v2 rewrite of legacy cisco_temperature override.
 
 Provides:
 - Improved sensor descriptions (entPhysicalDescr + entPhysicalName)
 - Temperature monitoring with device-provided thresholds
-- DOM monitoring for optical transceiver power (dBm/watts)
+- DOM monitoring for optical transceiver power (dBm)
+- Power supply monitoring for power modules (watts)
+
+Watts sensors (entSensorType 6) are ambiguous: an optical transceiver and a
+power supply both report watts. They are told apart structurally rather than
+by name -- see _resolve_sensor_role().
 """
 
 import math
+import re
 
 from cmk.agent_based.v2 import (
     CheckPlugin,
@@ -70,6 +76,28 @@ _ENVMON_STATES = {
 
 _ADMIN_STATE_MAP = {"1": "up", "2": "down", "3": "testing"}
 
+# ENTITY-MIB entPhysicalClass. A sensor row is always class sensor(8); the
+# class that matters is the one of the entity the sensor measures.
+_CLASS_POWER_SUPPLY = "6"
+_CLASS_PORT = "10"
+
+# Depth limit for the entPhysicalContainedIn walk. The MIB guarantees a strict
+# hierarchy, but a broken agent could still hand us a cycle.
+_MAX_CONTAINMENT_DEPTH = 16
+
+# Last-resort naming patterns for optical power, used only when the device
+# exposes no usable entity class. Deliberately narrow: a power supply's
+# "Input Power" / "Output Power" must not match.
+_OPTICAL_DESCR_RE = re.compile(
+    r"(?i)(?:\b(?:transmit|receive)\b|\b(?:tx|rx)\b|\((?:tx|rx)-)"
+)
+
+# Optical power above this many watts is implausible for a transceiver, so a
+# watts sensor exceeding it is treated as a power supply when nothing else
+# identifies it. Only reached when both the entity class and the name are
+# uninformative.
+_MAX_PLAUSIBLE_OPTICAL_WATTS = 1.0
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -92,6 +120,55 @@ def _watt_to_dbm(watt):
     return 10.0 * math.log10(watt) + 30.0
 
 
+def _resolve_sensor_role(sensor_id, measured_entity, entities):
+    """Determine what a sensor measures from the ENTITY-MIB containment tree.
+
+    entSensorMeasuredEntity points at the entPhysicalIndex of the measured
+    entity -- for a power supply sensor, the power supply itself. The MIB
+    allows a value of 0 when no such row exists, and not every Cisco platform
+    populates it, so fall back to walking entPhysicalContainedIn upwards from
+    the sensor's own row.
+
+    Returns "psu", "optical", or None when the tree is uninformative.
+    """
+    index = measured_entity if measured_entity not in (None, "", "0") else sensor_id
+
+    seen = set()
+    for _ in range(_MAX_CONTAINMENT_DEPTH):
+        if index in (None, "", "0") or index in seen:
+            break
+        seen.add(index)
+        entity = entities.get(index)
+        if entity is None:
+            break
+        if entity["class"] == _CLASS_POWER_SUPPLY:
+            return "psu"
+        if entity["class"] == _CLASS_PORT:
+            return "optical"
+        index = entity["parent"]
+
+    return None
+
+
+def _watts_sensor_role(attrs):
+    """Classify a watts sensor as optical transceiver power or supply power.
+
+    Structure first (authoritative), then naming, then magnitude. The last two
+    only apply to devices that expose no usable entPhysicalClass.
+    """
+    if attrs.get("role"):
+        return attrs["role"]
+
+    if _OPTICAL_DESCR_RE.search(attrs.get("descr", "")):
+        return "optical"
+
+    reading = attrs.get("reading")
+    if reading is not None and 0 < reading < _MAX_PLAUSIBLE_OPTICAL_WATTS:
+        return "optical"
+
+    return "psu"
+
+
 # ---------------------------------------------------------------------------
 # Parse function
 # ---------------------------------------------------------------------------
@@ -107,10 +184,12 @@ def _parse_cisco_sensor(string_table):
     perfstuff = string_table[3]
     admin_states = string_table[4]
 
-    # 1. Build descriptions: sensor_id -> "desc_a - desc_b"
+    # 1. Build descriptions and the entity tree used to classify sensors
     descriptions = {}
-    for row in description_info:
-        descriptions[row[0]] = row[1] + " - " + row[2]
+    entities = {}
+    for index, descr, name, parent, phys_class in description_info:
+        descriptions[index] = descr + " - " + name
+        entities[index] = {"parent": parent, "class": phys_class}
 
     # 2. Map admin states to sensor IDs
     admin_states_dict = {}
@@ -129,7 +208,15 @@ def _parse_cisco_sensor(string_table):
 
     # 4. Parse entity sensors (CISCO-ENTITY-SENSOR-MIB)
     entity_parsed = {}
-    for sensor_id, sensortype_id, scalecode, magnitude, value, sensorstate in state_info:
+    for (
+        sensor_id,
+        sensortype_id,
+        scalecode,
+        magnitude,
+        value,
+        sensorstate,
+        measured_entity,
+    ) in state_info:
         sensortype = _SENSOR_TYPES.get(sensortype_id)
         if sensortype not in ("dBm", "celsius", "watts"):
             continue
@@ -146,6 +233,7 @@ def _parse_cisco_sensor(string_table):
             "raw_dev_state": sensorstate,
             "dev_state": dev_state,
             "admin_state": admin_states_dict.get(sensor_id),
+            "role": _resolve_sensor_role(sensor_id, measured_entity, entities),
         }
 
         if sensorstate == "1":
@@ -154,7 +242,8 @@ def _parse_cisco_sensor(string_table):
 
             dev_levels = None
             sensor_thresholds = thresholds.get(sensor_id, [])
-            if sensortype == "dBm" and len(sensor_thresholds) == 4:
+            if sensortype in ("dBm", "watts") and len(sensor_thresholds) == 4:
+                # Two lower and two upper bounds, in the sensor's own unit.
                 converted = sorted(float(t) * factor for t in sensor_thresholds)
                 dev_levels = (converted[2], converted[3], converted[1], converted[0])
             elif sensortype == "celsius" and len(sensor_thresholds) == 4:
@@ -215,15 +304,23 @@ snmp_section_oposs_cisco_sensor = SNMPSection(
     ),
     parse_function=_parse_cisco_sensor,
     fetch=[
-        # 0: Entity descriptions
+        # 0: Entity descriptions and containment tree
+        #    2 = entPhysicalDescr, 7 = entPhysicalName,
+        #    4 = entPhysicalContainedIn, 5 = entPhysicalClass
         SNMPTree(
             base=".1.3.6.1.2.1.47.1.1.1.1",
-            oids=[OIDEnd(), OIDCached("2"), OIDCached("7")],
+            oids=[
+                OIDEnd(),
+                OIDCached("2"),
+                OIDCached("7"),
+                OIDCached("4"),
+                OIDCached("5"),
+            ],
         ),
-        # 1: Entity sensor data
+        # 1: Entity sensor data (8 = entSensorMeasuredEntity)
         SNMPTree(
             base=".1.3.6.1.4.1.9.9.91.1.1.1.1",
-            oids=[OIDEnd(), "1", "2", "3", "4", "5"],
+            oids=[OIDEnd(), "1", "2", "3", "4", "5", "8"],
         ),
         # 2: Sensor thresholds
         SNMPTree(
@@ -303,22 +400,49 @@ check_plugin_oposs_cisco_temperature = CheckPlugin(
 # DOM check
 # ---------------------------------------------------------------------------
 
+def _dom_sensors(section):
+    """Yield (item, attrs) for every optical sensor.
+
+    dBm sensors (type 14) are optical by definition. Watts sensors (type 6)
+    only qualify once the entity tree says they belong to a port.
+    """
+    for item, attrs in section.get("14", {}).items():
+        yield item, attrs, "dBm"
+    for item, attrs in section.get("6", {}).items():
+        if _watts_sensor_role(attrs) == "optical":
+            yield item, attrs, "W"
+
+
 def _discover_dom(section) -> DiscoveryResult:
-    for sensor_type in ("14", "6"):
-        for item, attrs in section.get(sensor_type, {}).items():
-            if attrs.get("raw_dev_state") == "1":
-                admin = attrs.get("admin_state")
-                if admin in ("up", None):
-                    yield Service(item=item)
+    for item, attrs, _unit in _dom_sensors(section):
+        if attrs.get("raw_dev_state") == "1":
+            admin = attrs.get("admin_state")
+            if admin in ("up", None):
+                yield Service(item=item)
+
+
+def _levels_from_params_or_device(params, dev_levels):
+    """Resolve upper/lower levels, user configuration winning over the device."""
+    dev_levels = dev_levels or (None, None, None, None)
+
+    levels_upper = params.get("levels_upper")
+    if levels_upper is None and dev_levels[0] is not None and dev_levels[1] is not None:
+        levels_upper = ("fixed", (dev_levels[0], dev_levels[1]))
+
+    levels_lower = params.get("levels_lower")
+    if levels_lower is None and dev_levels[2] is not None and dev_levels[3] is not None:
+        levels_lower = ("fixed", (dev_levels[2], dev_levels[3]))
+
+    return levels_upper, levels_lower
 
 
 def _check_dom(item, params, section) -> CheckResult:
-    # Look up in dBm sensors first, then watts
-    data = section.get("14", {}).get(item)
-    unit = "dBm"
-    if data is None:
-        data = section.get("6", {}).get(item, {})
-        unit = "W"
+    for candidate, attrs, unit in _dom_sensors(section):
+        if candidate == item:
+            data, native_unit = attrs, unit
+            break
+    else:
+        return
 
     reading = data.get("reading")
     if reading is None:
@@ -327,40 +451,39 @@ def _check_dom(item, params, section) -> CheckResult:
     dev_state, state_readable = data["dev_state"]
     yield Result(state=dev_state, notice="Device status: %s" % state_readable)
 
-    # Convert watts < 1 to dBm
-    if unit == "W" and reading < 1:
-        reading = _watt_to_dbm(reading)
-        unit = "dBm"
+    dev_levels = data.get("dev_levels")
 
-    # Determine metric name from description
+    # Optical power is always reported in dBm, whatever unit the sensor used.
+    if native_unit == "W":
+        reading = _watt_to_dbm(reading)
+        if dev_levels:
+            dev_levels = tuple(
+                _watt_to_dbm(level) if level is not None else None for level in dev_levels
+            )
+
+    if not math.isfinite(reading):
+        yield Result(state=State.UNKNOWN, summary="Reading is not a valid power value")
+        return
+
+    # Direction has no representation in the entity tree -- the name is the
+    # only source for it, and it affects the metric name alone.
     descr = data.get("descr", "")
     if "Transmit" in descr:
-        dsname = "oposs_cisco_output_signal_power_dbm" if unit == "dBm" else "oposs_cisco_output_signal_power_w"
+        dsname = "oposs_cisco_output_signal_power_dbm"
     elif "Receive" in descr:
-        dsname = "oposs_cisco_input_signal_power_dbm" if unit == "dBm" else "oposs_cisco_input_signal_power_w"
+        dsname = "oposs_cisco_input_signal_power_dbm"
     else:
         dsname = "oposs_cisco_signal_power_dbm"
 
-    # User-configured levels override device thresholds
-    levels_upper = params.get("levels_upper")
-    levels_lower = params.get("levels_lower")
-
-    if levels_upper is None:
-        dev_levels = data.get("dev_levels") or (None, None, None, None)
-        if dev_levels[0] is not None and dev_levels[1] is not None:
-            levels_upper = ("fixed", (dev_levels[0], dev_levels[1]))
-    if levels_lower is None:
-        dev_levels = data.get("dev_levels") or (None, None, None, None)
-        if len(dev_levels) >= 4 and dev_levels[2] is not None and dev_levels[3] is not None:
-            levels_lower = ("fixed", (dev_levels[2], dev_levels[3]))
+    levels_upper, levels_lower = _levels_from_params_or_device(params, dev_levels)
 
     yield from check_levels(
         reading,
         levels_upper=levels_upper,
         levels_lower=levels_lower,
         metric_name=dsname,
-        label="Signal power" if unit == "dBm" else "Power",
-        render_func=lambda v: "%.2f %s" % (v, unit),
+        label="Signal power",
+        render_func=lambda v: "%.2f dBm" % v,
     )
 
 
@@ -371,5 +494,50 @@ check_plugin_oposs_cisco_dom = CheckPlugin(
     discovery_function=_discover_dom,
     check_function=_check_dom,
     check_ruleset_name="oposs_cisco_dom_params",
+    check_default_parameters={},
+)
+
+
+# ---------------------------------------------------------------------------
+# Power supply check
+# ---------------------------------------------------------------------------
+
+def _discover_power(section) -> DiscoveryResult:
+    for item, attrs in section.get("6", {}).items():
+        if attrs.get("raw_dev_state") == "1" and _watts_sensor_role(attrs) == "psu":
+            yield Service(item=item)
+
+
+def _check_power(item, params, section) -> CheckResult:
+    data = section.get("6", {}).get(item)
+    if data is None or _watts_sensor_role(data) != "psu":
+        return
+
+    reading = data.get("reading")
+    if reading is None:
+        return
+
+    dev_state, state_readable = data["dev_state"]
+    yield Result(state=dev_state, notice="Device status: %s" % state_readable)
+
+    levels_upper, levels_lower = _levels_from_params_or_device(params, data.get("dev_levels"))
+
+    yield from check_levels(
+        reading,
+        levels_upper=levels_upper,
+        levels_lower=levels_lower,
+        metric_name="oposs_cisco_power_w",
+        label="Power",
+        render_func=lambda v: "%.2f W" % v if v < 1000 else "%.2f kW" % (v / 1000.0),
+    )
+
+
+check_plugin_oposs_cisco_power = CheckPlugin(
+    name="oposs_cisco_power",
+    sections=["oposs_cisco_sensor"],
+    service_name="Cisco Power %s",
+    discovery_function=_discover_power,
+    check_function=_check_power,
+    check_ruleset_name="oposs_cisco_power_params",
     check_default_parameters={},
 )

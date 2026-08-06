@@ -8,14 +8,16 @@ from cmk.graphing.v1.metrics import (
     Color,
     DecimalNotation,
     Metric,
+    SINotation,
     Unit,
 )
 from cmk.graphing.v1.graphs import Graph, MinimalRange
 
-# Units
+# Units. Power supplies reach several kW, so use SI scaling there rather than
+# printing a five-digit watt figure.
 unit_celsius = Unit(DecimalNotation("\u00b0C"))
 unit_dbm = Unit(DecimalNotation("dBm"))
-unit_watts = Unit(DecimalNotation("W"))
+unit_watts = Unit(SINotation("W"))
 
 # Metrics
 metric_oposs_cisco_temperature = Metric(
@@ -46,18 +48,13 @@ metric_oposs_cisco_signal_power_dbm = Metric(
     color=Color.PURPLE,
 )
 
-metric_oposs_cisco_output_signal_power_w = Metric(
-    name="oposs_cisco_output_signal_power_w",
-    title=Title("Output Signal Power"),
+# Power supply readings. Optical power is always normalised to dBm, so the
+# only watt metric left is the one for power modules.
+metric_oposs_cisco_power_w = Metric(
+    name="oposs_cisco_power_w",
+    title=Title("Power"),
     unit=unit_watts,
     color=Color.DARK_BLUE,
-)
-
-metric_oposs_cisco_input_signal_power_w = Metric(
-    name="oposs_cisco_input_signal_power_w",
-    title=Title("Input Signal Power"),
-    unit=unit_watts,
-    color=Color.DARK_GREEN,
 )
 
 # Graphs
@@ -75,4 +72,10 @@ graph_oposs_cisco_dom_signal_power = Graph(
         "oposs_cisco_output_signal_power_dbm",
         "oposs_cisco_input_signal_power_dbm",
     ],
+)
+
+graph_oposs_cisco_power = Graph(
+    name="oposs_cisco_power",
+    title=Title("Cisco Power"),
+    simple_lines=["oposs_cisco_power_w"],
 )

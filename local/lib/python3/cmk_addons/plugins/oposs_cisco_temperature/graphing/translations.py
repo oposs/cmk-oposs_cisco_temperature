@@ -34,7 +34,5 @@ translation_oposs_cisco_dom = translations.Translation(
         "output_signal_power_dbm": translations.RenameTo("oposs_cisco_output_signal_power_dbm"),
         "input_signal_power_dbm": translations.RenameTo("oposs_cisco_input_signal_power_dbm"),
         "signal_power_dbm": translations.RenameTo("oposs_cisco_signal_power_dbm"),
-        "output_signal_power_w": translations.RenameTo("oposs_cisco_output_signal_power_w"),
-        "input_signal_power_w": translations.RenameTo("oposs_cisco_input_signal_power_w"),
     },
 )

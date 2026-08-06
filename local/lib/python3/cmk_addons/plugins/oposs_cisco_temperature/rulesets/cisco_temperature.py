@@ -90,3 +90,46 @@ rule_spec_oposs_cisco_dom_params = CheckParameters(
     parameter_form=_form_spec_cisco_dom,
     condition=HostAndItemCondition(item_title=Title("Sensor name")),
 )
+
+
+def _form_spec_cisco_power():
+    return Dictionary(
+        title=Title("Cisco Power Supply Levels"),
+        elements={
+            "levels_upper": DictElement(
+                parameter_form=SimpleLevels(
+                    title=Title("Power upper levels"),
+                    help_text=Help(
+                        "Override device-reported upper power thresholds (watts). "
+                        "Leave unconfigured to use device defaults."
+                    ),
+                    level_direction=LevelDirection.UPPER,
+                    form_spec_template=Float(unit_symbol="W"),
+                    prefill_fixed_levels=DefaultValue((2000.0, 2500.0)),
+                ),
+                required=False,
+            ),
+            "levels_lower": DictElement(
+                parameter_form=SimpleLevels(
+                    title=Title("Power lower levels"),
+                    help_text=Help(
+                        "Override device-reported lower power thresholds (watts). "
+                        "Leave unconfigured to use device defaults."
+                    ),
+                    level_direction=LevelDirection.LOWER,
+                    form_spec_template=Float(unit_symbol="W"),
+                    prefill_fixed_levels=DefaultValue((50.0, 10.0)),
+                ),
+                required=False,
+            ),
+        },
+    )
+
+
+rule_spec_oposs_cisco_power_params = CheckParameters(
+    title=Title("Cisco Power Supply Monitoring"),
+    topic=Topic.ENVIRONMENTAL,
+    name="oposs_cisco_power_params",
+    parameter_form=_form_spec_cisco_power,
+    condition=HostAndItemCondition(item_title=Title("Sensor name")),
+)
