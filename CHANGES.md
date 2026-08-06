@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.2.0 - 2026-08-06
+### New
 - New `oposs_cisco_power` check ("Cisco Power %s") for power supply /
   power module watt sensors, with an SI-scaled `oposs_cisco_power_w`
   metric (a 1573 W reading now renders as 1.57 kW) and a matching
