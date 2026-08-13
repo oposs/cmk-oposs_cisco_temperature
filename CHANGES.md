@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### New
 
 ### Changed
+
+### Fixed
+
+## 0.3.0 - 2026-08-13
+### Changed
 - Optical sensors are now recognised by joining the measured entity's
   `entPhysicalName` against `ifDescr`, instead of relying on
   `entPhysicalClass` being `port(10)`. Verified against a real ASR 9000
