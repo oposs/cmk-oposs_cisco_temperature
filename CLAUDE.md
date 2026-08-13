@@ -32,10 +32,21 @@ Full v2 rewrite of legacy cisco_temperature override from oegig-plugins.
 supplies, so the type alone cannot decide which check owns a sensor.
 `_resolve_sensor_role()` resolves it structurally: follow
 `entSensorMeasuredEntity` (or, when the device leaves it at 0, walk
-`entPhysicalContainedIn` upwards) and read `entPhysicalClass` — `powerSupply(6)`
-means a PSU sensor, `port(10)` means an optic. Description patterns and a
-"below 1 W" magnitude test are fallbacks only, for agents that populate
-neither column.
+`entPhysicalContainedIn` upwards) and inspect each ancestor.
+
+- `entPhysicalClass` = `powerSupply(6)` → PSU sensor.
+- the entity's `entPhysicalName` is an `ifDescr` → optic. **This, not
+  `port(10)`, is what identifies transceivers on IOS-XR.** An ASR 9000
+  models a transceiver as `module(9)` inside an "SFP+ bay" `container(5)`
+  and reserves `port(10)` for internal control-ethernet ports, so an
+  optic's chain contains no `port(10)` at all. The same join supplies the
+  interface admin state used to filter DOM discovery.
+- `entPhysicalClass` = `port(10)` → optic (platforms that do model it that way).
+
+Description patterns and a "below 1 W" magnitude test are fallbacks only, for
+agents that populate none of the above. On the reference ASR 9000 all 50 watt
+sensors classify structurally — `tests/` asserts this by disabling both
+fallbacks and requiring an identical result.
 
 Tx/Rx direction genuinely has no structural representation in ENTITY-MIB; it
 is read from the description, and only selects the metric name.

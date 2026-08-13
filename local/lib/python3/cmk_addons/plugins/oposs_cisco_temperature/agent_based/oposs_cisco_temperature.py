@@ -120,7 +120,7 @@ def _watt_to_dbm(watt):
     return 10.0 * math.log10(watt) + 30.0
 
 
-def _resolve_sensor_role(sensor_id, measured_entity, entities):
+def _resolve_sensor_role(sensor_id, measured_entity, entities, if_admin_states):
     """Determine what a sensor measures from the ENTITY-MIB containment tree.
 
     entSensorMeasuredEntity points at the entPhysicalIndex of the measured
@@ -129,7 +129,17 @@ def _resolve_sensor_role(sensor_id, measured_entity, entities):
     populates it, so fall back to walking entPhysicalContainedIn upwards from
     the sensor's own row.
 
-    Returns "psu", "optical", or None when the tree is uninformative.
+    entPhysicalClass alone is not enough to recognise an optic. IOS-XR models
+    a transceiver as module(9) inside an "SFP+ bay" container(5) and reserves
+    port(10) for internal control-ethernet ports, so an ASR 9000 transceiver
+    has no port(10) anywhere in its containment chain. What does identify it
+    is that the measured entity's entPhysicalName is an interface: on that
+    platform the transceiver entity is named e.g. "TenGigE0/6/0/0", matching
+    ifDescr exactly. That join also yields the interface's admin state.
+
+    Returns a (role, interface_name) pair; role is "psu", "optical" or None
+    when the tree is uninformative, and interface_name is None unless the
+    sensor was matched to an interface.
     """
     index = measured_entity if measured_entity not in (None, "", "0") else sensor_id
 
@@ -142,12 +152,14 @@ def _resolve_sensor_role(sensor_id, measured_entity, entities):
         if entity is None:
             break
         if entity["class"] == _CLASS_POWER_SUPPLY:
-            return "psu"
+            return "psu", None
+        if entity["name"] and entity["name"] in if_admin_states:
+            return "optical", entity["name"]
         if entity["class"] == _CLASS_PORT:
-            return "optical"
+            return "optical", None
         index = entity["parent"]
 
-    return None
+    return None, None
 
 
 def _watts_sensor_role(attrs):
@@ -189,14 +201,17 @@ def _parse_cisco_sensor(string_table):
     entities = {}
     for index, descr, name, parent, phys_class in description_info:
         descriptions[index] = descr + " - " + name
-        entities[index] = {"parent": parent, "class": phys_class}
+        entities[index] = {"name": name, "parent": parent, "class": phys_class}
 
-    # 2. Map admin states to sensor IDs
-    admin_states_dict = {}
-    for if_name, admin_state in admin_states:
-        for sensor_id, descr in descriptions.items():
-            if descr.startswith(if_name):
-                admin_states_dict[sensor_id] = _ADMIN_STATE_MAP.get(admin_state)
+    # 2. Interface admin states, keyed by ifDescr so a sensor can be joined to
+    #    its interface through the measured entity's entPhysicalName. Matching
+    #    on the item description instead would never fire: that string starts
+    #    with entPhysicalDescr ("Power Sensor - ..."), not with the interface.
+    if_admin_states = {
+        if_name: _ADMIN_STATE_MAP.get(admin_state)
+        for if_name, admin_state in admin_states
+        if if_name
+    }
 
     # 3. Build thresholds: sensor_id -> [level, ...]
     thresholds = {}
@@ -228,12 +243,15 @@ def _parse_cisco_sensor(string_table):
         entity_parsed.setdefault(sensortype_id, {})
         dev_state = _ENTITY_STATES.get(sensorstate, (State.UNKNOWN, "unknown[%s]" % sensorstate))
 
+        role, interface = _resolve_sensor_role(
+            sensor_id, measured_entity, entities, if_admin_states
+        )
         sensor_attrs = {
             "descr": descr,
             "raw_dev_state": sensorstate,
             "dev_state": dev_state,
-            "admin_state": admin_states_dict.get(sensor_id),
-            "role": _resolve_sensor_role(sensor_id, measured_entity, entities),
+            "admin_state": if_admin_states.get(interface) if interface else None,
+            "role": role,
         }
 
         if sensorstate == "1":
@@ -462,7 +480,9 @@ def _check_dom(item, params, section) -> CheckResult:
             )
 
     if not math.isfinite(reading):
-        yield Result(state=State.UNKNOWN, summary="Reading is not a valid power value")
+        # A transceiver reporting exactly 0 W has no light on that lane; dBm
+        # is undefined for it. Say so rather than printing "nan dBm".
+        yield Result(state=State.UNKNOWN, summary="No optical power (0 W)")
         return
 
     # Direction has no representation in the entity tree -- the name is the

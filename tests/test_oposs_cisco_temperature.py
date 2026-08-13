@@ -2,7 +2,7 @@
 """Standalone harness: stubs cmk.agent_based.v2 so the plugin can be exercised
 without a Checkmk site. Data reconstructed from the reported services."""
 
-import sys, types, math, enum, importlib.util
+import sys, types, math, enum, re, importlib.util
 
 # ---- stub cmk.agent_based.v2 ----------------------------------------------
 class State(enum.Enum):
@@ -205,5 +205,76 @@ mets = [r for r in p._check_dom("Ethernet1/9(Tx-dBm) - Ethernet1/9",
                                 {"levels_upper": ("fixed", (1.0, 2.0))}, section2)
         if isinstance(r, Metric)]
 assert mets[0].levels == (1.0, 2.0), mets[0].levels
+
+
+# ---- IOS-XR / ASR 9000 entity shape ----------------------------------------
+# Taken from a real ASR 9000 walk. The platform models a transceiver as
+# module(9) inside an "SFP+ bay" container(5) and reserves port(10) for
+# internal control-ethernet ports, so NO port(10) appears in an optic's
+# containment chain. What identifies it is that the measured entity's
+# entPhysicalName equals an ifDescr.
+print("\n=== IOS-XR entity shape (transceiver is module(9), not port(10)) ===")
+xr_entities = [
+    ["1",       "ASR 9000 Chassis",       "Rack 0",                        "0",       "3"],
+    ["18",      "Mgmt Ethernet Switch",   "0/RSP0-Mgmt Ethernet Switch",   "1",       "9"],
+    ["101",     "Control Ethernet Port 10", "0/RSP0-CE Port 10",           "18",      "10"],  # port(10) decoy
+    ["33569",   "SFP+ bay 0",             "0/6-SFP+ bay 0",                "1",       "5"],
+    ["4554753", "10GBASE-SR SFP Module, Enterprise-Class", "TenGigE0/6/0/0", "33569", "9"],
+    ["4555022", "Power Sensor",           "TenGigE0/6/0/0-Tx Lane 0 Power", "4554753", "8"],
+    ["4555034", "Power Sensor",           "TenGigE0/6/0/0-Rx Lane 0 Power", "4554753", "8"],
+    ["2375681", "3kW AC Power Module",    "0/PT0-PM0",                     "1",       "6"],
+    ["2375950", "Power Sensor",           "0/PT0-PM0-Input Power",         "2375681", "8"],
+    # a dark optic on an admin-down interface
+    ["4559000", "10GBASE-SR SFP Module",  "TenGigE0/6/0/9",                "33569",   "9"],
+    ["4559118", "Power Sensor",           "TenGigE0/6/0/9-Tx Lane 0 Power", "4559000", "8"],
+]
+xr_sensors = [
+    ["4555022", "6", "8", "5", "58700",  "1", "4554753"],   # 0.587 mW -> -2.32 dBm
+    ["4555034", "6", "8", "5", "58900",  "1", "4554753"],
+    ["2375950", "6", "9", "2", "127037", "1", "2375681"],   # 1270.37 W
+    ["4559118", "6", "8", "5", "0",      "1", "4559000"],   # dark optic: 0 W
+]
+xr_ifs = [
+    ["TenGigE0/6/0/0", "1"],   # up
+    ["TenGigE0/6/0/9", "2"],   # down
+]
+xr = p._parse_cisco_sensor([xr_entities, xr_sensors, [], [], xr_ifs])
+
+for item, attrs in sorted(xr["6"].items()):
+    print(f"  {item:<55} role={attrs['role']!r:<11} admin={attrs['admin_state']!r}")
+
+# classification must be structural, NOT via the name regex or the magnitude
+# test -- disable both and require an identical answer
+saved_re, saved_max = p._OPTICAL_DESCR_RE, p._MAX_PLAUSIBLE_OPTICAL_WATTS
+p._OPTICAL_DESCR_RE = re.compile(r"(?!x)x")
+p._MAX_PLAUSIBLE_OPTICAL_WATTS = -1.0
+try:
+    xr_nofallback = p._parse_cisco_sensor([xr_entities, xr_sensors, [], [], xr_ifs])
+    for item, attrs in xr["6"].items():
+        assert xr_nofallback["6"][item]["role"] == attrs["role"], (
+            f"{item}: classification depends on a heuristic fallback")
+    dom_a = {s.item for s in p._discover_dom(xr)}
+    dom_b = {s.item for s in p._discover_dom(xr_nofallback)}
+    assert dom_a == dom_b, (dom_a ^ dom_b)
+finally:
+    p._OPTICAL_DESCR_RE, p._MAX_PLAUSIBLE_OPTICAL_WATTS = saved_re, saved_max
+print("  -> classification unchanged with both heuristics disabled")
+
+opt = xr["6"]["Power Sensor - TenGigE0/6/0/0-Tx Lane 0 Power"]
+assert opt["role"] == "optical", opt          # module(9), no port(10) in chain
+assert opt["admin_state"] == "up", opt        # joined to ifDescr
+
+psu = xr["6"]["Power Sensor - 0/PT0-PM0-Input Power"]
+assert psu["role"] == "psu" and psu["admin_state"] is None, psu
+
+# admin-down interfaces must not be discovered as DOM services
+dark = "Power Sensor - TenGigE0/6/0/9-Tx Lane 0 Power"
+assert xr["6"][dark]["admin_state"] == "down", xr["6"][dark]
+assert dark not in {s.item for s in p._discover_dom(xr)}, "admin-down optic discovered"
+
+# a 0 W optic must not render as "nan dBm"
+res = [r for r in p._check_dom(dark, {}, xr) if getattr(r, "summary", None)]
+assert any("No optical power" in r.summary for r in res), res
+print(f"  -> dark optic reports: {[r.summary for r in res if r.summary][-1]!r}")
 
 print("\nALL ASSERTIONS PASSED")

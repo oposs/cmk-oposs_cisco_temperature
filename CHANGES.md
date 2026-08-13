@@ -10,8 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### New
 
 ### Changed
+- Optical sensors are now recognised by joining the measured entity's
+  `entPhysicalName` against `ifDescr`, instead of relying on
+  `entPhysicalClass` being `port(10)`. Verified against a real ASR 9000
+  (IOS-XR): it models transceivers as `module(9)` inside an "SFP+ bay"
+  `container(5)` and uses `port(10)` only for internal control-ethernet
+  ports, so no optic had a `port(10)` ancestor and all 46 of them were
+  silently falling through to the name-pattern fallback. All 50 watt
+  sensors on that chassis now classify structurally; the test suite
+  asserts this by disabling both heuristic fallbacks and requiring an
+  identical classification.
 
 ### Fixed
+- DOM discovery now actually applies its interface admin-state filter.
+  The interface was matched with `descr.startswith(if_name)` against a
+  string that begins with `entPhysicalDescr` ("Power Sensor - ..."), which
+  can never match an `ifDescr`, so every sensor ended up with
+  `admin_state = None` and optics on admin-down interfaces were discovered
+  regardless. The match now goes through the measured entity's
+  `entPhysicalName`. This can remove DOM services for admin-down
+  interfaces on the next rediscovery.
+- A transceiver reporting exactly 0 W (a dark lane) reported the unhelpful
+  "Reading is not a valid power value"; it now says "No optical power
+  (0 W)". dBm is undefined at 0 W, so the state remains UNKNOWN.
 
 ## 0.2.0 - 2026-08-06
 ### New
