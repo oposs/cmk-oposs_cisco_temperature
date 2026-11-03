@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (C) 2025 OETIKER+PARTNER AG - License: GNU General Public License v2
 
 """
@@ -26,16 +25,15 @@ from cmk.agent_based.v2 import (
     OIDCached,
     OIDEnd,
     Result,
+    Service,
     SNMPSection,
     SNMPTree,
-    Service,
     State,
-    check_levels,
     all_of,
     any_of,
+    check_levels,
     exists,
     matches,
-    render,
 )
 
 # ---------------------------------------------------------------------------
@@ -241,7 +239,7 @@ def _parse_cisco_sensor(string_table):
             continue
 
         entity_parsed.setdefault(sensortype_id, {})
-        dev_state = _ENTITY_STATES.get(sensorstate, (State.UNKNOWN, "unknown[%s]" % sensorstate))
+        dev_state = _ENTITY_STATES.get(sensorstate, (State.UNKNOWN, f"unknown[{sensorstate}]"))
 
         role, interface = _resolve_sensor_role(
             sensor_id, measured_entity, entities, if_admin_states
@@ -286,7 +284,7 @@ def _parse_cisco_sensor(string_table):
 
         sensor_attrs = {
             "raw_dev_state": state,
-            "dev_state": _ENVMON_STATES.get(state, (State.UNKNOWN, "unknown[%s]" % state)),
+            "dev_state": _ENVMON_STATES.get(state, (State.UNKNOWN, f"unknown[{state}]")),
         }
         try:
             sensor_attrs["reading"] = int(temp)
@@ -382,11 +380,11 @@ def _check_temperature(item, params, section) -> CheckResult:
     dev_state, state_readable = data["dev_state"]
     reading = data.get("reading")
     if reading is None:
-        yield Result(state=dev_state, summary="Status: %s" % state_readable)
+        yield Result(state=dev_state, summary=f"Status: {state_readable}")
         return
 
     # Device state
-    yield Result(state=dev_state, notice="Device status: %s" % state_readable)
+    yield Result(state=dev_state, notice=f"Device status: {state_readable}")
 
     # User-configured levels override device thresholds
     levels_upper = params.get("levels")
@@ -399,7 +397,7 @@ def _check_temperature(item, params, section) -> CheckResult:
         levels_upper=levels_upper,
         metric_name="oposs_cisco_temperature",
         label="Temperature",
-        render_func=lambda v: "%.1f \u00b0C" % v,
+        render_func=lambda v: f"{v:.1f} \u00b0C",
     )
 
 
@@ -467,7 +465,7 @@ def _check_dom(item, params, section) -> CheckResult:
         return
 
     dev_state, state_readable = data["dev_state"]
-    yield Result(state=dev_state, notice="Device status: %s" % state_readable)
+    yield Result(state=dev_state, notice=f"Device status: {state_readable}")
 
     dev_levels = data.get("dev_levels")
 
@@ -503,7 +501,7 @@ def _check_dom(item, params, section) -> CheckResult:
         levels_lower=levels_lower,
         metric_name=dsname,
         label="Signal power",
-        render_func=lambda v: "%.2f dBm" % v,
+        render_func=lambda v: f"{v:.2f} dBm",
     )
 
 
@@ -538,7 +536,7 @@ def _check_power(item, params, section) -> CheckResult:
         return
 
     dev_state, state_readable = data["dev_state"]
-    yield Result(state=dev_state, notice="Device status: %s" % state_readable)
+    yield Result(state=dev_state, notice=f"Device status: {state_readable}")
 
     levels_upper, levels_lower = _levels_from_params_or_device(params, data.get("dev_levels"))
 
@@ -548,7 +546,7 @@ def _check_power(item, params, section) -> CheckResult:
         levels_lower=levels_lower,
         metric_name="oposs_cisco_power_w",
         label="Power",
-        render_func=lambda v: "%.2f W" % v if v < 1000 else "%.2f kW" % (v / 1000.0),
+        render_func=lambda v: f"{v:.2f} W" if v < 1000 else f"{v / 1000.0:.2f} kW",
     )
 
 

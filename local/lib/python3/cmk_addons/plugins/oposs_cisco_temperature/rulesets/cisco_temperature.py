@@ -1,21 +1,20 @@
-#!/usr/bin/env python3
 # Copyright (C) 2025 OETIKER+PARTNER AG - License: GNU General Public License v2
 
 """Rulesets for the Cisco temperature and DOM check plugins."""
 
-from cmk.rulesets.v1 import Title, Help
+from cmk.rulesets.v1 import Help, Title
 from cmk.rulesets.v1.form_specs import (
-    Dictionary,
-    DictElement,
-    Float,
-    SimpleLevels,
-    LevelDirection,
     DefaultValue,
+    DictElement,
+    Dictionary,
+    Float,
+    LevelDirection,
+    SimpleLevels,
 )
 from cmk.rulesets.v1.rule_specs import (
     CheckParameters,
-    Topic,
     HostAndItemCondition,
+    Topic,
 )
 
 
