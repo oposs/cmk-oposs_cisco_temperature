@@ -9,6 +9,7 @@ test_oposs_cisco_temperature.py.
 """
 
 import importlib.util
+import json
 import pathlib
 import re
 import sys
@@ -477,3 +478,23 @@ def test_plugins_share_the_section(p):
         assert plugin.check_default_parameters == {}
     assert isinstance(next(iter(p._discover_power(p._parse_cisco_sensor(
         [ENTITIES, SENSORS, [], [], []])))), Service)
+
+
+# ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+
+def test_release_writes_version_into_check(tmp_path):
+    """Apply the version_files entry of .github/repo-infra.json to the check
+    module, as Create release PR does (a multiline regex, first match)"""
+    config = json.loads((ROOT / ".github/repo-infra.json").read_text())
+    (spec,) = [f for f in config["version_files"] if (ROOT / f["path"]) == PLUGIN]
+    stamped = re.sub(spec["pattern"], spec["replacement"].replace("$VERSION", "9.8.7"),
+                     PLUGIN.read_text(), count=1, flags=re.MULTILINE)
+    assert re.search(spec["verify"].replace("$VERSION", re.escape("9.8.7")), stamped, flags=re.MULTILINE)
+    copy = tmp_path / "stamped_check.py"
+    copy.write_text(stamped)
+    module_spec = importlib.util.spec_from_file_location("stamped_check", copy)
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    assert module.__version__ == "9.8.7"

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### New
+- The package carries the release version in its check plugin (`__version__`).
 
 ### Changed
 - Licence is now GNU General Public License v2, matching the headers
