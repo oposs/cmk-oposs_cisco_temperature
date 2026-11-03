@@ -434,14 +434,25 @@ def test_dom_ignores_power_supplies(p, section):
     assert list(p._check_dom(PSU_IN, {}, section)) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: IOS-XR optics are named '...-Tx Lane 0 Power', the metric name looks only "
-    "for 'Transmit'/'Receive', so their Tx and Rx power land in the ungraphed generic metric",
-)
 def test_dom_metric_direction_on_ios_xr(p, section):
     assert "oposs_cisco_output_signal_power_dbm" in _metrics(p._check_dom(TX, {}, section))
     assert "oposs_cisco_input_signal_power_dbm" in _metrics(p._check_dom(RX, {}, section))
+
+
+@pytest.mark.parametrize(
+    "descr, name, metric",
+    [
+        ("Ethernet1/9(Tx-dBm)", "Ethernet1/9", "oposs_cisco_output_signal_power_dbm"),
+        ("Ethernet1/9(Rx-dBm)", "Ethernet1/9", "oposs_cisco_input_signal_power_dbm"),
+        ("Transmitted Power", "Gi1/0/1", "oposs_cisco_output_signal_power_dbm"),
+        ("Power Sensor", "Gi1/0/1 Lane 1", "oposs_cisco_signal_power_dbm"),
+    ],
+)
+def test_dom_metric_direction_from_description(p, descr, name, metric):
+    entities = [["10", descr, name, "0", "8"]]
+    sensors = [["10", "14", "8", "0", "-3000", "1", "0"]]
+    section = p._parse_cisco_sensor([entities, sensors, [], [], []])
+    assert list(_metrics(p._check_dom(f"{descr} - {name}", {}, section))) == [metric]
 
 
 # ---------------------------------------------------------------------------

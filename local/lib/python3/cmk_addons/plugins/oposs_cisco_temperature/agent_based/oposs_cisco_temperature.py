@@ -94,6 +94,10 @@ _OPTICAL_DESCR_RE = re.compile(
     r"(?i)(?:\b(?:transmit|receive)\b|\b(?:tx|rx)\b|\((?:tx|rx)-)"
 )
 
+# Direction of an optical sensor, for the metric name.
+_TRANSMIT_DESCR_RE = re.compile(r"Transmit|(?i:\btx\b)")
+_RECEIVE_DESCR_RE = re.compile(r"Receive|(?i:\brx\b)")
+
 # Optical power above this many watts is implausible for a transceiver, so a
 # watts sensor exceeding it is treated as a power supply when nothing else
 # identifies it. Only reached when both the entity class and the name are
@@ -502,10 +506,11 @@ def _check_dom(item, params, section) -> CheckResult:
 
     # Direction has no representation in the entity tree -- the name is the
     # only source for it, and it affects the metric name alone.
+    # IOS-XR names its lanes "...-Tx Lane 0 Power" / "...-Rx Lane 0 Power".
     descr = data.get("descr", "")
-    if "Transmit" in descr:
+    if _TRANSMIT_DESCR_RE.search(descr):
         dsname = "oposs_cisco_output_signal_power_dbm"
-    elif "Receive" in descr:
+    elif _RECEIVE_DESCR_RE.search(descr):
         dsname = "oposs_cisco_input_signal_power_dbm"
     else:
         dsname = "oposs_cisco_signal_power_dbm"
