@@ -332,11 +332,6 @@ def test_temperature_vanished_item(p, section):
     assert list(p._check_temperature("does not exist", {}, section)) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: an entity sensor whose entSensorStatus is not ok(1) is dropped by the parse "
-    "function, so its service reports 'item not found' instead of the device status",
-)
 def test_temperature_reports_a_non_operational_entity_sensor(p):
     entities = [["5000", "Temp Sensor", "0/RSP0-Inlet", "1", "8"]]
     sensors = [["5000", "8", "9", "0", "0", "3", "0"]]   # nonoperational(3)
@@ -344,6 +339,25 @@ def test_temperature_reports_a_non_operational_entity_sensor(p):
     assert list(p._check_temperature(INLET, {}, section)) == [
         Result(state=State.UNKNOWN, summary="Status: non-operational")
     ]
+
+
+def test_non_ok_entity_sensor_is_not_discovered(p):
+    # It reports its status once discovered, but a rediscovery does not add it
+    entities = [["5000", "Temp Sensor", "0/RSP0-Inlet", "1", "8"]]
+    sensors = [["5000", "8", "9", "0", "0", "2", "0"]]   # unavailable(2)
+    section = p._parse_cisco_sensor([entities, sensors, [], [], []])
+    assert list(p._discover_temperature(section)) == []
+
+
+def test_non_ok_entity_sensor_keeps_the_envmon_item(p):
+    # An ENVMON row with the index of a broken entity sensor stays a normal
+    # service, as before; only an ok entity sensor makes it obsolete.
+    entities = [["5000", "Temp Sensor", "Inlet", "1", "8"]]
+    sensors = [["5000", "8", "9", "0", "0", "3", "0"]]
+    envmon = [["5000", "Inlet, GREEN", "31", "60", "1"]]
+    section = p._parse_cisco_sensor([entities, sensors, [], envmon, []])
+    assert _items(p._discover_temperature(section)) == ["Inlet"]
+    assert _worst(p._check_temperature("Inlet", {}, section)) is State.OK
 
 
 # ---------------------------------------------------------------------------
@@ -406,18 +420,39 @@ def test_dom_dark_optic(p, section):
     assert _metrics(out) == {}
 
 
+@pytest.mark.parametrize("status, text", [("2", "unavailable"), ("3", "non-operational")])
+def test_dom_reports_a_non_ok_optic(p, status, text):
+    sensors = [["4555022", "6", "8", "5", "0", status, "4554753"]]
+    section = p._parse_cisco_sensor([ENTITIES, sensors, [], [], IFACES])
+    assert list(p._discover_dom(section)) == []
+    assert list(p._check_dom(TX, {}, section)) == [
+        Result(state=State.UNKNOWN, summary=f"Status: {text}")
+    ]
+
+
 def test_dom_ignores_power_supplies(p, section):
     assert list(p._check_dom(PSU_IN, {}, section)) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: IOS-XR optics are named '...-Tx Lane 0 Power', the metric name looks only "
-    "for 'Transmit'/'Receive', so their Tx and Rx power land in the ungraphed generic metric",
-)
 def test_dom_metric_direction_on_ios_xr(p, section):
     assert "oposs_cisco_output_signal_power_dbm" in _metrics(p._check_dom(TX, {}, section))
     assert "oposs_cisco_input_signal_power_dbm" in _metrics(p._check_dom(RX, {}, section))
+
+
+@pytest.mark.parametrize(
+    "descr, name, metric",
+    [
+        ("Ethernet1/9(Tx-dBm)", "Ethernet1/9", "oposs_cisco_output_signal_power_dbm"),
+        ("Ethernet1/9(Rx-dBm)", "Ethernet1/9", "oposs_cisco_input_signal_power_dbm"),
+        ("Transmitted Power", "Gi1/0/1", "oposs_cisco_output_signal_power_dbm"),
+        ("Power Sensor", "Gi1/0/1 Lane 1", "oposs_cisco_signal_power_dbm"),
+    ],
+)
+def test_dom_metric_direction_from_description(p, descr, name, metric):
+    entities = [["10", descr, name, "0", "8"]]
+    sensors = [["10", "14", "8", "0", "-3000", "1", "0"]]
+    section = p._parse_cisco_sensor([entities, sensors, [], [], []])
+    assert list(_metrics(p._check_dom(f"{descr} - {name}", {}, section))) == [metric]
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +496,15 @@ def test_power_device_levels(p, value, state):
 def test_power_user_levels_win(p, section):
     params = {"levels_upper": ("fixed", (1000.0, 1200.0))}
     assert _worst(p._check_power(PSU_IN, params, section)) is State.CRIT
+
+
+def test_power_reports_a_non_ok_power_module(p):
+    sensors = [["2375950", "6", "9", "2", "0", "3", "2375681"]]
+    section = p._parse_cisco_sensor([ENTITIES, sensors, [], [], IFACES])
+    assert list(p._discover_power(section)) == []
+    assert list(p._check_power(PSU_IN, {}, section)) == [
+        Result(state=State.UNKNOWN, summary="Status: non-operational")
+    ]
 
 
 def test_power_ignores_optics(p, section):

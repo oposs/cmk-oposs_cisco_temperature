@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   text, which contradicted them.
 
 ### Fixed
+- A "Cisco Temp", "Cisco DOM" or "Cisco Power" service whose sensor the
+  device reports as unavailable or non-operational went UNKNOWN with
+  "Item not found in monitoring data"; it now shows the device status,
+  for example "Status: non-operational". A rediscovery still adds no
+  service for such a sensor.
+- The "Cisco DOM" services of optics named "Tx" or "Rx" instead of
+  "Transmit" or "Receive", such as "Power Sensor - TenGigE0/6/0/0-Tx Lane
+  0 Power" on IOS-XR, graphed their power as "Signal Power" outside the
+  "Cisco DOM Signal Power" graph. They now record "Output Signal Power" or
+  "Input Signal Power" and appear in "Cisco DOM Signal Power"; the values
+  recorded under "Signal Power" before the update are not carried over.
 
 ## 0.3.0 - 2026-08-13
 ### Changed
