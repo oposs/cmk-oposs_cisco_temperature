@@ -271,10 +271,17 @@ def _parse_cisco_sensor(string_table):
                 dev_levels = (min(raw_w, raw_c), max(raw_w, raw_c))
 
             sensor_attrs["dev_levels"] = dev_levels
-            entity_parsed[sensortype_id].setdefault(sensor_id, sensor_attrs)
+
+        # Keep a sensor that is not ok(1) too: its service reports the device
+        # status instead of vanishing.
+        entity_parsed[sensortype_id].setdefault(sensor_id, sensor_attrs)
 
     # 5. Parse ENVMON temperatures
-    found_temp_sensors = entity_parsed.get("8", {})
+    found_temp_sensors = {
+        sensor_id: attrs
+        for sensor_id, attrs in entity_parsed.get("8", {}).items()
+        if attrs["raw_dev_state"] == "1"
+    }
     parsed = {}
     temp_sensors = parsed.setdefault("8", {})
 
@@ -367,8 +374,13 @@ snmp_section_oposs_cisco_sensor = SNMPSection(
 
 def _discover_temperature(section) -> DiscoveryResult:
     for item, attrs in section.get("8", {}).items():
-        if not attrs.get("obsolete", False):
-            yield Service(item=item)
+        if attrs.get("obsolete", False):
+            continue
+        # An entity sensor (it has a "descr") is discovered only while ok(1);
+        # ENVMON sensors are discovered in any state.
+        if "descr" in attrs and attrs["raw_dev_state"] != "1":
+            continue
+        yield Service(item=item)
 
 
 def _check_temperature(item, params, section) -> CheckResult:
@@ -464,11 +476,12 @@ def _check_dom(item, params, section) -> CheckResult:
     else:
         return
 
+    dev_state, state_readable = data["dev_state"]
     reading = data.get("reading")
     if reading is None:
+        yield Result(state=dev_state, summary=f"Status: {state_readable}")
         return
 
-    dev_state, state_readable = data["dev_state"]
     yield Result(state=dev_state, notice=f"Device status: {state_readable}")
 
     dev_levels = data.get("dev_levels")
@@ -535,11 +548,12 @@ def _check_power(item, params, section) -> CheckResult:
     if data is None or _watts_sensor_role(data) != "psu":
         return
 
+    dev_state, state_readable = data["dev_state"]
     reading = data.get("reading")
     if reading is None:
+        yield Result(state=dev_state, summary=f"Status: {state_readable}")
         return
 
-    dev_state, state_readable = data["dev_state"]
     yield Result(state=dev_state, notice=f"Device status: {state_readable}")
 
     levels_upper, levels_lower = _levels_from_params_or_device(params, data.get("dev_levels"))

@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   text, which contradicted them.
 
 ### Fixed
+- A "Cisco Temp", "Cisco DOM" or "Cisco Power" service whose sensor the
+  device reports as unavailable or non-operational went UNKNOWN with
+  "Item not found in monitoring data"; it now shows the device status,
+  for example "Status: non-operational". A rediscovery still adds no
+  service for such a sensor.
 
 ## 0.3.0 - 2026-08-13
 ### Changed
