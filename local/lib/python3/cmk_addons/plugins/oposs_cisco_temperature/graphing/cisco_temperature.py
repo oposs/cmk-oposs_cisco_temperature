@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
 # Copyright (C) 2025 OETIKER+PARTNER AG - License: GNU General Public License v2
 
 """Metric and graph definitions for the Cisco temperature and DOM check."""
 
 from cmk.graphing.v1 import Title
+from cmk.graphing.v1.graphs import Graph, MinimalRange
 from cmk.graphing.v1.metrics import (
     Color,
     DecimalNotation,
@@ -11,7 +11,6 @@ from cmk.graphing.v1.metrics import (
     SINotation,
     Unit,
 )
-from cmk.graphing.v1.graphs import Graph, MinimalRange
 
 # Units. Power supplies reach several kW, so use SI scaling there rather than
 # printing a five-digit watt figure.
