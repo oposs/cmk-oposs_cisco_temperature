@@ -56,9 +56,15 @@ converted via `_watt_to_dbm()`.
 
 ## Testing
 
-`tests/test_oposs_cisco_temperature.py` stubs `cmk.agent_based.v2` so the
-plugin can be exercised with synthetic SNMP tables without a Checkmk site.
-Run it with plain `python3`.
+`tests/conftest.py` fetches the real Checkmk 2.3.0 API into `.cmk-api/`
+(gitignored), so the tests run against the API the plugin targets, without a
+Checkmk site. `tests/cmk_stubs/` stays a namespace package. Run:
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+ruff check local/
+```
 
 ## Duplication Note
 
