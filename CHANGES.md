@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.4.0 - 2026-11-06
+### New
 - The package carries the release version in its check plugin (`__version__`).
 
 ### Changed
