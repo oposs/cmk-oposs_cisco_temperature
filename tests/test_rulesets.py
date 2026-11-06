@@ -5,7 +5,6 @@ import pathlib
 import sys
 
 import pytest
-
 from cmk.rulesets.v1.form_specs import LevelDirection, SimpleLevels
 from cmk.rulesets.v1.rule_specs import CheckParameters, HostAndItemCondition
 

@@ -5,7 +5,6 @@ import pathlib
 import sys
 
 import pytest
-
 from cmk.agent_based.v2 import Metric
 from cmk.graphing.v1 import graphs, metrics, perfometers, translations
 
@@ -13,7 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature"
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import test_check as data  # noqa: E402
+import test_check as data
 
 
 def _load(path):
