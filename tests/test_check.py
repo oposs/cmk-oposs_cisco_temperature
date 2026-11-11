@@ -268,18 +268,22 @@ def test_parse_skips_a_threshold_row_with_an_odd_index(p):
     assert section["8"][HOTSPOT]["dev_levels"] == (60.0, 70.0)
 
 
-def test_parse_skips_a_non_numeric_threshold_value(p):
+@pytest.mark.parametrize("bad", ["n/a", "nan", "inf", "-inf"])
+def test_parse_skips_a_non_numeric_threshold_value(p, bad):
     # The broken row is dropped; with only three thresholds left the sensor
     # gets no device levels, but it is still monitored.
     thresholds = [row for row in THRESHOLDS if row[0] != "2375950.4"]
-    thresholds.append(["2375950.4", "n/a"])
+    thresholds.append(["2375950.4", bad])
     section = p._parse_cisco_sensor([ENTITIES, SENSORS, thresholds, ENVMON, IFACES])
     assert section["6"][PSU_IN]["reading"] == pytest.approx(1270.37)
     assert section["6"][PSU_IN]["dev_levels"] is None
     assert section["8"][INLET]["dev_levels"] == (55.0, 65.0)
 
 
-@pytest.mark.parametrize("column, bad", [(3, ""), (4, ""), (4, "12.5.1"), (4, "n/a")])
+@pytest.mark.parametrize(
+    "column, bad",
+    [(3, ""), (4, ""), (4, "12.5.1"), (4, "n/a"), (4, "nan"), (4, "inf"), (4, "-Infinity"), (3, "nan"), (3, "-400")],
+)
 def test_parse_skips_a_sensor_row_with_a_non_numeric_value(p, column, bad):
     # One sensor with an unusable entSensorPrecision or entSensorValue must
     # not take the other sensors of the device down with it.

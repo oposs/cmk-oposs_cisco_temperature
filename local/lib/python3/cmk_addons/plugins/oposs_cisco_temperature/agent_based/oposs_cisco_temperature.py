@@ -120,6 +120,14 @@ def _cisco_sensor_item(description, sensor_id):
     return description.strip() or str(sensor_id)
 
 
+def _finite_float(text):
+    """float() that also rejects "nan" and "inf", which no sensor reports."""
+    number = float(text)
+    if not math.isfinite(number):
+        raise ValueError(f"not a finite number: {text!r}")
+    return number
+
+
 def _watt_to_dbm(watt):
     """Convert watts to dBm."""
     if watt <= 0:
@@ -236,7 +244,7 @@ def _parse_cisco_sensor(string_table):
         # One malformed row must not cost the device all its other sensors.
         try:
             sensor_id, _subid = row[0].split(".")
-            float(row[1])
+            _finite_float(row[1])
         except ValueError:
             continue
         thresholds.setdefault(sensor_id, []).append(row[1])
@@ -273,9 +281,11 @@ def _parse_cisco_sensor(string_table):
 
         if sensorstate == "1":
             try:
-                factor = 10.0 ** (float(_SCALE_EXPONENTS.get(scalecode, 0)) - float(magnitude))
-                reading = float(value) * factor
-            except ValueError:
+                factor = 10.0 ** (_SCALE_EXPONENTS.get(scalecode, 0) - _finite_float(magnitude))
+                reading = _finite_float(value) * factor
+                if not math.isfinite(reading):
+                    raise ValueError(reading)
+            except (ValueError, OverflowError):
                 # Skip this sensor rather than fail the whole section.
                 continue
 

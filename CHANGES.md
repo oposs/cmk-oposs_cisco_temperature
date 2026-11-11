@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   carried over, while services of sensors with a name keep their names.
 
 ### Fixed
+- A sensor whose value or threshold the device reported as "nan" or "inf"
+  was monitored with that value instead of being skipped like other
+  values that are not a number, and an out-of-range precision on one
+  sensor still made the whole SNMP section fail. Both are now skipped
+  like other malformed rows.
 - A single sensor or threshold row with a malformed index or a value that
   is not a number made the whole SNMP section fail to parse, so every
   "Cisco Temp", "Cisco DOM" and "Cisco Power" service of the device lost
