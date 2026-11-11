@@ -295,6 +295,50 @@ def test_parse_skips_a_sensor_row_with_a_non_numeric_value(p, column, bad):
     )
 
 
+# Older IOS platforms leave entPhysicalName empty on sensor rows.
+UNNAMED_ENTITIES = [
+    ["1",    "Chassis",      "",     "0", "3"],
+    ["1006", "Temp Sensor",  "",     "1", "8"],
+    ["1007", "Temp Sensor",  "",     "1", "8"],
+    ["1008", "Inlet Sensor", "",     "1", "8"],
+    ["1009", "",             "",     "1", "8"],
+    ["1010", "Temp Sensor",  "CPU",  "1", "8"],
+]
+UNNAMED_SENSORS = [
+    ["1006", "8", "9", "0", "41", "1", "0"],
+    ["1007", "8", "9", "0", "43", "2", "0"],   # unavailable: still in the group
+    ["1008", "8", "9", "0", "29", "1", "0"],
+    ["1009", "8", "9", "0", "35", "1", "0"],
+    ["1010", "8", "9", "0", "52", "1", "0"],
+]
+
+
+def test_sensor_without_name_is_named_by_its_description(p):
+    section = p._parse_cisco_sensor([UNNAMED_ENTITIES, UNNAMED_SENSORS, [], [], []])
+    temps = section["8"]
+    assert temps["Inlet Sensor"]["reading"] == 29.0
+    # without description and name the index names it, as for ENVMON
+    assert temps["1009"]["reading"] == 35.0
+    # a sensor with a name keeps exactly its item
+    assert temps["Temp Sensor - CPU"]["reading"] == 52.0
+    assert not any(item.endswith(" - ") or item == "Temp Sensor" for item in temps)
+
+
+def test_unnamed_sensors_with_the_same_description_get_their_index(p):
+    section = p._parse_cisco_sensor([UNNAMED_ENTITIES, UNNAMED_SENSORS, [], [], []])
+    temps = section["8"]
+    assert temps["Temp Sensor 1006"]["reading"] == 41.0
+    assert temps["Temp Sensor 1007"]["dev_state"] == (State.UNKNOWN, "unavailable")
+    assert _items(p._discover_temperature(section)) == [
+        "1009", "Inlet Sensor", "Temp Sensor - CPU", "Temp Sensor 1006",
+    ]
+    # the names do not depend on the row order of the walk
+    reverse = p._parse_cisco_sensor(
+        [UNNAMED_ENTITIES[::-1], UNNAMED_SENSORS[::-1], [], [], []]
+    )
+    assert set(reverse["8"]) == set(temps)
+
+
 def test_obsolete_envmon_item_when_entity_sensor_has_the_same_index(p):
     entities = [["5000", "Temp Sensor", "Inlet", "1", "8"]]
     sensors = [["5000", "8", "9", "0", "31", "1", "0"]]

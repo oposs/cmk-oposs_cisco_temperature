@@ -17,6 +17,7 @@ by name -- see _resolve_sensor_role().
 
 import math
 import re
+from collections import Counter
 
 from cmk.agent_based.v2 import (
     CheckPlugin,
@@ -203,10 +204,18 @@ def _parse_cisco_sensor(string_table):
     admin_states = string_table[4]
 
     # 1. Build descriptions and the entity tree used to classify sensors
+    #    Older IOS platforms leave entPhysicalName empty on sensor rows; such
+    #    a sensor is named by its description, or by its index when that is
+    #    empty too, as for ENVMON.
     descriptions = {}
     entities = {}
+    unnamed = set()
     for index, descr, name, parent, phys_class in description_info:
-        descriptions[index] = descr + " - " + name
+        if name:
+            descriptions[index] = descr + " - " + name
+        else:
+            descriptions[index] = descr or index
+            unnamed.add(index)
         entities[index] = {"name": name, "parent": parent, "class": phys_class}
 
     # 2. Interface admin states, keyed by ifDescr so a sensor can be joined to
@@ -233,6 +242,15 @@ def _parse_cisco_sensor(string_table):
         thresholds.setdefault(sensor_id, []).append(row[1])
 
     # 4. Parse entity sensors (CISCO-ENTITY-SENSOR-MIB)
+    #    Unnamed sensors of one type that share a description would share an
+    #    item, so every member of such a group gets its index appended. The
+    #    group is counted over all rows, whatever their status or value, so
+    #    that a name does not change when a sibling sensor fails.
+    unnamed_items = Counter(
+        (row[1], descriptions[row[0]])
+        for row in state_info
+        if row[0] in unnamed and _SENSOR_TYPES.get(row[1]) in ("dBm", "celsius", "watts")
+    )
     entity_parsed = {}
     for (
         sensor_id,
@@ -250,6 +268,8 @@ def _parse_cisco_sensor(string_table):
         descr = descriptions.get(sensor_id, sensor_id)
         if not descr:
             continue
+        if sensor_id in unnamed and unnamed_items[(sensortype_id, descr)] > 1:
+            descr = f"{descr} {sensor_id}"
 
         if sensorstate == "1":
             try:
@@ -303,7 +323,7 @@ def _parse_cisco_sensor(string_table):
 
     for sensor_id, statustext, temp, max_temp, state in perfstuff:
         if sensor_id in descriptions and sensor_id in found_temp_sensors:
-            item = descriptions[sensor_id]
+            item = found_temp_sensors[sensor_id]["descr"]
             prev_description = _cisco_sensor_item(statustext, sensor_id)
             temp_sensors[prev_description] = {"obsolete": True}
         else:
