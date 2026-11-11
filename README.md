@@ -1,6 +1,7 @@
 # Cisco Temperature & DOM Checkmk Plugin
 
-Enhanced Checkmk SNMP plugin for Cisco temperature and DOM (Digital Optical Monitoring).
+Enhanced Checkmk SNMP plugin for Cisco temperature, DOM (Digital Optical
+Monitoring) and power supply sensors.
 
 ## Features
 
@@ -8,12 +9,16 @@ Enhanced Checkmk SNMP plugin for Cisco temperature and DOM (Digital Optical Moni
 |-------|-------------|-------------|
 | Temperature | Cisco Temp %s | Temperature sensors with device thresholds |
 | DOM | Cisco DOM %s | Optical transceiver power (dBm/watts) |
+| Power | Cisco Power %s | Power supply input/output power (watts) with device thresholds |
 
 ### Improvements over built-in
 
 - **Better descriptions:** Combines `entPhysicalDescr` and `entPhysicalName` for clearer sensor identification
 - **DOM monitoring:** Optical transceiver Tx/Rx power levels with device-provided thresholds
 - **Watt-to-dBm conversion:** Automatically converts watt readings to dBm
+- **Power supply monitoring:** Watts sensors of power supplies get their own
+  service instead of being shown as optical power. The ENTITY-MIB containment
+  tree decides which of the two a watts sensor measures
 
 ## SNMP Detection
 

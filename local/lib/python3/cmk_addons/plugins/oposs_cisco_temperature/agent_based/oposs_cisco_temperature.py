@@ -224,7 +224,12 @@ def _parse_cisco_sensor(string_table):
     for row in state_info:
         thresholds.setdefault(row[0], [])
     for row in levels_info:
-        sensor_id, _subid = row[0].split(".")
+        # One malformed row must not cost the device all its other sensors.
+        try:
+            sensor_id, _subid = row[0].split(".")
+            float(row[1])
+        except ValueError:
+            continue
         thresholds.setdefault(sensor_id, []).append(row[1])
 
     # 4. Parse entity sensors (CISCO-ENTITY-SENSOR-MIB)
@@ -246,6 +251,14 @@ def _parse_cisco_sensor(string_table):
         if not descr:
             continue
 
+        if sensorstate == "1":
+            try:
+                factor = 10.0 ** (float(_SCALE_EXPONENTS.get(scalecode, 0)) - float(magnitude))
+                reading = float(value) * factor
+            except ValueError:
+                # Skip this sensor rather than fail the whole section.
+                continue
+
         entity_parsed.setdefault(sensortype_id, {})
         dev_state = _ENTITY_STATES.get(sensorstate, (State.UNKNOWN, f"unknown[{sensorstate}]"))
 
@@ -261,8 +274,7 @@ def _parse_cisco_sensor(string_table):
         }
 
         if sensorstate == "1":
-            factor = 10.0 ** (float(_SCALE_EXPONENTS.get(scalecode, 0)) - float(magnitude))
-            sensor_attrs["reading"] = float(value) * factor
+            sensor_attrs["reading"] = reading
 
             dev_levels = None
             sensor_thresholds = thresholds.get(sensor_id, [])

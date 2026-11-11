@@ -258,6 +258,43 @@ def test_parse_survives_a_containment_cycle(p):
     assert p._watts_sensor_role(attrs) == "psu"
 
 
+def test_parse_skips_a_threshold_row_with_an_odd_index(p):
+    # A threshold index without the "<sensor>.<threshold>" shape, or with
+    # more parts, is skipped; the other sensors keep their levels.
+    thresholds = THRESHOLDS + [["5000", "70"], ["5001.1.9", "80"]]
+    section = p._parse_cisco_sensor([ENTITIES, SENSORS, thresholds, ENVMON, IFACES])
+    assert section["6"][PSU_IN]["dev_levels"] == pytest.approx((1500.0, 2000.0, 100.0, 50.0))
+    assert section["8"][INLET]["dev_levels"] == (55.0, 65.0)
+    assert section["8"][HOTSPOT]["dev_levels"] == (60.0, 70.0)
+
+
+def test_parse_skips_a_non_numeric_threshold_value(p):
+    # The broken row is dropped; with only three thresholds left the sensor
+    # gets no device levels, but it is still monitored.
+    thresholds = [row for row in THRESHOLDS if row[0] != "2375950.4"]
+    thresholds.append(["2375950.4", "n/a"])
+    section = p._parse_cisco_sensor([ENTITIES, SENSORS, thresholds, ENVMON, IFACES])
+    assert section["6"][PSU_IN]["reading"] == pytest.approx(1270.37)
+    assert section["6"][PSU_IN]["dev_levels"] is None
+    assert section["8"][INLET]["dev_levels"] == (55.0, 65.0)
+
+
+@pytest.mark.parametrize("column, bad", [(3, ""), (4, ""), (4, "12.5.1"), (4, "n/a")])
+def test_parse_skips_a_sensor_row_with_a_non_numeric_value(p, column, bad):
+    # One sensor with an unusable entSensorPrecision or entSensorValue must
+    # not take the other sensors of the device down with it.
+    sensors = [list(row) for row in SENSORS]
+    broken = next(row for row in sensors if row[0] == "2375951")
+    broken[column] = bad
+    section = p._parse_cisco_sensor([ENTITIES, sensors, THRESHOLDS, ENVMON, IFACES])
+    assert PSU_OUT not in section["6"]
+    assert section["6"][PSU_IN]["reading"] == pytest.approx(1270.37)
+    assert _items(p._discover_power(section)) == [PSU_IN]
+    assert _items(p._discover_temperature(section)) == _items(
+        p._discover_temperature(p._parse_cisco_sensor([ENTITIES, SENSORS, THRESHOLDS, ENVMON, IFACES]))
+    )
+
+
 def test_obsolete_envmon_item_when_entity_sensor_has_the_same_index(p):
     entities = [["5000", "Temp Sensor", "Inlet", "1", "8"]]
     sensors = [["5000", "8", "9", "0", "31", "1", "0"]]
@@ -550,3 +587,13 @@ def test_release_writes_version_into_check(tmp_path):
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
     assert module.__version__ == "9.8.7"
+
+
+def test_readme_lists_every_service(p):
+    readme = (ROOT / "README.md").read_text()
+    for plugin in (
+        p.check_plugin_oposs_cisco_temperature,
+        p.check_plugin_oposs_cisco_dom,
+        p.check_plugin_oposs_cisco_power,
+    ):
+        assert f"| {plugin.service_name} |" in readme, plugin.service_name
