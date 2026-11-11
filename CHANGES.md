@@ -13,13 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A "Cisco Temp", "Cisco DOM" or "Cisco Power" service for a sensor that
   the device reports without a name, common on older IOS devices, no
   longer ends in " - ": "Cisco Temp Temp Sensor - " is now "Cisco Temp
-  Temp Sensor", and a sensor without a description is named by its
-  index, for example "Cisco Temp 1009". Unnamed sensors that share a
-  description used to show up as one service with the others not
+  Temp Sensor". A sensor without a description either is named by its
+  index, for example "Cisco Temp 1009". Affected hosts need a service
+  discovery; the history of the old services is not carried over.
+- Unnamed sensors that share a description showed up as one "Cisco
+  Temp", "Cisco DOM" or "Cisco Power" service, and the others were not
   monitored at all; each now gets its own service with its index
-  appended, for example "Cisco Temp Temp Sensor 1007". Affected hosts need
-  a service discovery: the old services go away and their history is not
-  carried over, while services of sensors with a name keep their names.
+  appended, for example "Cisco Temp Temp Sensor 1007". Affected hosts
+  need a service discovery: the old service goes away and its history is
+  not carried over. Services of sensors with a name keep their names.
 
 ### Fixed
 - A sensor whose value or threshold the device reported as "nan" or "inf"
