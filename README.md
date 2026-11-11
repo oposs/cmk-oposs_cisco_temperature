@@ -47,8 +47,13 @@ mkp install oposs_cisco_temperature-<version>.mkp
 
 ```
 local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature/
-└── agent_based/
-    └── oposs_cisco_temperature.py
+├── agent_based/
+│   └── oposs_cisco_temperature.py   # SNMP section and the three checks
+├── graphing/
+│   ├── cisco_temperature.py         # metrics, graphs, perfometers
+│   └── translations.py              # keeps the RRD history of renamed metrics
+└── rulesets/
+    └── cisco_temperature.py         # threshold rules for the three checks
 ```
 
 ## License

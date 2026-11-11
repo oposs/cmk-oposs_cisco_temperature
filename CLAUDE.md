@@ -1,13 +1,18 @@
 # cmk-oposs_cisco_temperature
 
-Enhanced Cisco temperature and DOM SNMP monitoring.
+Enhanced Cisco temperature, DOM and power supply SNMP monitoring.
 Full v2 rewrite of legacy cisco_temperature override from oegig-plugins.
 
 ## Components
 
-- `local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature/agent_based/oposs_cisco_temperature.py` -- SNMP section + two check plugins (temperature + DOM)
+- `local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature/agent_based/oposs_cisco_temperature.py` -- SNMP section + three check plugins (temperature, DOM, power supply)
+- `local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature/graphing/` -- metrics, graphs, perfometers; `translations.py` maps old metric names
+- `local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature/rulesets/cisco_temperature.py` -- threshold rules for the three checks
 - `.mkp-builder.ini` -- MKP packaging config
-- `.github/workflows/release.yml` -- automated release workflow
+- `.github/workflows/ci.yml` -- plugin lint, tests and package build on every PR
+- `.github/workflows/changelog.yml` -- requires a CHANGES.md change on a PR, unless it carries the `no-changelog` label
+- `.github/workflows/release-pr.yml` -- "Create release PR", started by hand; builds the MKP through `release-build.yml`
+- `.github/workflows/release-publish.yml` -- publishes the release when the release PR's CHANGES.md lands on main
 
 ## Architecture
 

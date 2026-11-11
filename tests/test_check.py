@@ -268,18 +268,22 @@ def test_parse_skips_a_threshold_row_with_an_odd_index(p):
     assert section["8"][HOTSPOT]["dev_levels"] == (60.0, 70.0)
 
 
-def test_parse_skips_a_non_numeric_threshold_value(p):
+@pytest.mark.parametrize("bad", ["n/a", "nan", "inf", "-inf"])
+def test_parse_skips_a_non_numeric_threshold_value(p, bad):
     # The broken row is dropped; with only three thresholds left the sensor
     # gets no device levels, but it is still monitored.
     thresholds = [row for row in THRESHOLDS if row[0] != "2375950.4"]
-    thresholds.append(["2375950.4", "n/a"])
+    thresholds.append(["2375950.4", bad])
     section = p._parse_cisco_sensor([ENTITIES, SENSORS, thresholds, ENVMON, IFACES])
     assert section["6"][PSU_IN]["reading"] == pytest.approx(1270.37)
     assert section["6"][PSU_IN]["dev_levels"] is None
     assert section["8"][INLET]["dev_levels"] == (55.0, 65.0)
 
 
-@pytest.mark.parametrize("column, bad", [(3, ""), (4, ""), (4, "12.5.1"), (4, "n/a")])
+@pytest.mark.parametrize(
+    "column, bad",
+    [(3, ""), (4, ""), (4, "12.5.1"), (4, "n/a"), (4, "nan"), (4, "inf"), (4, "-Infinity"), (3, "nan"), (3, "-400")],
+)
 def test_parse_skips_a_sensor_row_with_a_non_numeric_value(p, column, bad):
     # One sensor with an unusable entSensorPrecision or entSensorValue must
     # not take the other sensors of the device down with it.
@@ -293,6 +297,50 @@ def test_parse_skips_a_sensor_row_with_a_non_numeric_value(p, column, bad):
     assert _items(p._discover_temperature(section)) == _items(
         p._discover_temperature(p._parse_cisco_sensor([ENTITIES, SENSORS, THRESHOLDS, ENVMON, IFACES]))
     )
+
+
+# Older IOS platforms leave entPhysicalName empty on sensor rows.
+UNNAMED_ENTITIES = [
+    ["1",    "Chassis",      "",     "0", "3"],
+    ["1006", "Temp Sensor",  "",     "1", "8"],
+    ["1007", "Temp Sensor",  "",     "1", "8"],
+    ["1008", "Inlet Sensor", "",     "1", "8"],
+    ["1009", "",             "",     "1", "8"],
+    ["1010", "Temp Sensor",  "CPU",  "1", "8"],
+]
+UNNAMED_SENSORS = [
+    ["1006", "8", "9", "0", "41", "1", "0"],
+    ["1007", "8", "9", "0", "43", "2", "0"],   # unavailable: still in the group
+    ["1008", "8", "9", "0", "29", "1", "0"],
+    ["1009", "8", "9", "0", "35", "1", "0"],
+    ["1010", "8", "9", "0", "52", "1", "0"],
+]
+
+
+def test_sensor_without_name_is_named_by_its_description(p):
+    section = p._parse_cisco_sensor([UNNAMED_ENTITIES, UNNAMED_SENSORS, [], [], []])
+    temps = section["8"]
+    assert temps["Inlet Sensor"]["reading"] == 29.0
+    # without description and name the index names it, as for ENVMON
+    assert temps["1009"]["reading"] == 35.0
+    # a sensor with a name keeps exactly its item
+    assert temps["Temp Sensor - CPU"]["reading"] == 52.0
+    assert not any(item.endswith(" - ") or item == "Temp Sensor" for item in temps)
+
+
+def test_unnamed_sensors_with_the_same_description_get_their_index(p):
+    section = p._parse_cisco_sensor([UNNAMED_ENTITIES, UNNAMED_SENSORS, [], [], []])
+    temps = section["8"]
+    assert temps["Temp Sensor 1006"]["reading"] == 41.0
+    assert temps["Temp Sensor 1007"]["dev_state"] == (State.UNKNOWN, "unavailable")
+    assert _items(p._discover_temperature(section)) == [
+        "1009", "Inlet Sensor", "Temp Sensor - CPU", "Temp Sensor 1006",
+    ]
+    # the names do not depend on the row order of the walk
+    reverse = p._parse_cisco_sensor(
+        [UNNAMED_ENTITIES[::-1], UNNAMED_SENSORS[::-1], [], [], []]
+    )
+    assert set(reverse["8"]) == set(temps)
 
 
 def test_obsolete_envmon_item_when_entity_sensor_has_the_same_index(p):
@@ -597,3 +645,12 @@ def test_readme_lists_every_service(p):
         p.check_plugin_oposs_cisco_power,
     ):
         assert f"| {plugin.service_name} |" in readme, plugin.service_name
+
+
+def test_readme_installation_tree_lists_every_plugin_file():
+    readme = (ROOT / "README.md").read_text()
+    tree = readme.split("### Manual Installation", 1)[1].split("## ", 1)[0]
+    plugin_dir = ROOT / "local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature"
+    for path in sorted(plugin_dir.rglob("*.py")):
+        assert path.parent.name + "/" in tree, path.parent.name
+        assert path.name in tree, path.name

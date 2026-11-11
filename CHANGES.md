@@ -10,8 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### New
 
 ### Changed
+- A "Cisco Temp", "Cisco DOM" or "Cisco Power" service for a sensor that
+  the device reports without a name, common on older IOS devices, no
+  longer ends in " - ": "Cisco Temp Temp Sensor - " is now "Cisco Temp
+  Temp Sensor". A sensor without a description either is named by its
+  index, for example "Cisco Temp 1009". Affected hosts need a service
+  discovery; the history of the old services is not carried over.
+- Unnamed sensors that share a description showed up as one "Cisco
+  Temp", "Cisco DOM" or "Cisco Power" service, and the others were not
+  monitored at all; each now gets its own service with its index
+  appended, for example "Cisco Temp Temp Sensor 1007". Affected hosts
+  need a service discovery: the old service goes away and its history is
+  not carried over. Services of sensors with a name keep their names.
 
 ### Fixed
+- A sensor whose value or threshold the device reported as "nan" or "inf"
+  was monitored with that value instead of being skipped like other
+  values that are not a number, and an out-of-range precision on one
+  sensor still made the whole SNMP section fail. Both are now skipped
+  like other malformed rows.
 - A single sensor or threshold row with a malformed index or a value that
   is not a number made the whole SNMP section fail to parse, so every
   "Cisco Temp", "Cisco DOM" and "Cisco Power" service of the device lost
