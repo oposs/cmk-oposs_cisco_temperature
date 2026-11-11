@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 ### Fixed
+- A single sensor or threshold row with a malformed index or a value that
+  is not a number made the whole SNMP section fail to parse, so every
+  "Cisco Temp", "Cisco DOM" and "Cisco Power" service of the device lost
+  its data at once. Such a row is now skipped: only that sensor goes
+  missing, or loses its device thresholds, and all other services keep
+  working.
 
 ## 0.4.0 - 2026-11-06
 ### New
