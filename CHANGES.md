@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### New
 
 ### Changed
+
+### Fixed
+
+## 0.5.0 - 2026-11-11
+### Changed
 - A "Cisco Temp", "Cisco DOM" or "Cisco Power" service for a sensor that
   the device reports without a name, common on older IOS devices, no
   longer ends in " - ": "Cisco Temp Temp Sensor - " is now "Cisco Temp
