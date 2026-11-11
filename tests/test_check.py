@@ -587,3 +587,13 @@ def test_release_writes_version_into_check(tmp_path):
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
     assert module.__version__ == "9.8.7"
+
+
+def test_readme_lists_every_service(p):
+    readme = (ROOT / "README.md").read_text()
+    for plugin in (
+        p.check_plugin_oposs_cisco_temperature,
+        p.check_plugin_oposs_cisco_dom,
+        p.check_plugin_oposs_cisco_power,
+    ):
+        assert f"| {plugin.service_name} |" in readme, plugin.service_name
