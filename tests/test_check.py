@@ -645,3 +645,12 @@ def test_readme_lists_every_service(p):
         p.check_plugin_oposs_cisco_power,
     ):
         assert f"| {plugin.service_name} |" in readme, plugin.service_name
+
+
+def test_readme_installation_tree_lists_every_plugin_file():
+    readme = (ROOT / "README.md").read_text()
+    tree = readme.split("### Manual Installation", 1)[1].split("## ", 1)[0]
+    plugin_dir = ROOT / "local/lib/python3/cmk_addons/plugins/oposs_cisco_temperature"
+    for path in sorted(plugin_dir.rglob("*.py")):
+        assert path.parent.name + "/" in tree, path.parent.name
+        assert path.name in tree, path.name
