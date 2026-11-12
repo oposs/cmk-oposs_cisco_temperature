@@ -343,6 +343,47 @@ def test_unnamed_sensors_with_the_same_description_get_their_index(p):
     assert set(reverse["8"]) == set(temps)
 
 
+# Two line cards that name their sensors alike: description and name repeat.
+TWIN_ENTITIES = [
+    ["1",    "Chassis",            "",              "0",  "3"],
+    ["21",   "Line Card",          "slot 1",        "1",  "9"],
+    ["22",   "Line Card",          "slot 2",        "1",  "9"],
+    ["2101", "Temp Sensor",        "Inlet",         "21", "8"],
+    ["2201", "Temp Sensor",        "Inlet",         "22", "8"],
+    ["2102", "Temp Sensor",        "Outlet",        "21", "8"],
+    ["2103", "Power Sensor",       "Input Power",   "21", "8"],
+    ["2203", "Power Sensor",       "Input Power",   "22", "8"],
+]
+TWIN_SENSORS = [
+    ["2101", "8", "9", "0", "30", "1", "0"],
+    ["2201", "8", "9", "0", "34", "1", "0"],
+    ["2102", "8", "9", "0", "45", "1", "0"],
+    ["2103", "6", "9", "0", "250", "1", "0"],
+    ["2203", "6", "9", "0", "260", "2", "0"],   # unavailable: still in the group
+]
+
+
+def test_named_sensors_with_the_same_item_get_their_index(p):
+    section = p._parse_cisco_sensor([TWIN_ENTITIES, TWIN_SENSORS, [], [], []])
+    assert _items(p._discover_temperature(section)) == [
+        "Temp Sensor - Inlet 2101", "Temp Sensor - Inlet 2201", "Temp Sensor - Outlet",
+    ]
+    assert section["8"]["Temp Sensor - Inlet 2201"]["reading"] == 34.0
+    assert _items(p._discover_power(section)) == ["Power Sensor - Input Power 2103"]
+    assert list(p._check_power("Power Sensor - Input Power 2203", {}, section)) == [
+        Result(state=State.UNKNOWN, summary="Status: unavailable")
+    ]
+    # check and discovery agree on the item
+    results = list(p._check_temperature("Temp Sensor - Inlet 2101", {}, section))
+    assert Metric("oposs_cisco_temperature", 30.0) in results
+    # the names do not depend on the row order of the walk
+    reverse = p._parse_cisco_sensor(
+        [TWIN_ENTITIES[::-1], TWIN_SENSORS[::-1], [], [], []]
+    )
+    assert set(reverse["8"]) == set(section["8"])
+    assert set(reverse["6"]) == set(section["6"])
+
+
 def test_obsolete_envmon_item_when_entity_sensor_has_the_same_index(p):
     entities = [["5000", "Temp Sensor", "Inlet", "1", "8"]]
     sensors = [["5000", "8", "9", "0", "31", "1", "0"]]
