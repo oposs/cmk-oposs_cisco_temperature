@@ -196,6 +196,15 @@ def _watts_sensor_role(attrs):
     return "psu"
 
 
+def _sensor_service(sensortype, attrs):
+    """Name the service a sensor ends up in: "temp", "dom" or "power"."""
+    if sensortype == "celsius":
+        return "temp"
+    if sensortype == "dBm" or _watts_sensor_role(attrs) == "optical":
+        return "dom"
+    return "power"
+
+
 # ---------------------------------------------------------------------------
 # Parse function
 # ---------------------------------------------------------------------------
@@ -248,16 +257,15 @@ def _parse_cisco_sensor(string_table):
         thresholds.setdefault(sensor_id, []).append(row[1])
 
     # 4. Parse entity sensors (CISCO-ENTITY-SENSOR-MIB)
-    #    Sensors of one type that share a description (and name, if any)
-    #    would share an item, so every member of such a group gets its index
-    #    appended; a sensor whose item is unique keeps it. The group is
-    #    counted over all rows, whatever their status or value, so that a
-    #    name does not change when a sibling sensor fails.
-    item_counts = Counter(
-        (row[1], descriptions.get(row[0], row[0]))
-        for row in state_info
-        if _SENSOR_TYPES.get(row[1]) in ("dBm", "celsius", "watts")
-    )
+    #    Sensors that share a description (and name, if any) and end up in
+    #    the same service would share an item, so every member of such a
+    #    group gets its index appended; a sensor whose item is unique keeps
+    #    it. The group is counted over all rows, whatever their status, so
+    #    that a name does not change when a sibling sensor fails. It is
+    #    counted per service, as "Cisco DOM" holds both dBm and optical watts
+    #    sensors, and per type, as the section keeps optical and power supply
+    #    watts sensors in one table.
+    item_counts = Counter()
     entity_parsed = {}
     for (
         sensor_id,
@@ -275,9 +283,12 @@ def _parse_cisco_sensor(string_table):
         descr = descriptions.get(sensor_id, sensor_id)
         if not descr:
             continue
-        if item_counts[(sensortype_id, descr)] > 1:
-            descr = f"{descr} {sensor_id}"
 
+        role, interface = _resolve_sensor_role(
+            sensor_id, measured_entity, entities, if_admin_states
+        )
+
+        reading = None
         if sensorstate == "1":
             try:
                 factor = 10.0 ** (_SCALE_EXPONENTS.get(scalecode, 0) - _finite_float(magnitude))
@@ -285,15 +296,17 @@ def _parse_cisco_sensor(string_table):
                 if not math.isfinite(reading):
                     raise ValueError(reading)
             except (ValueError, OverflowError):
-                # Skip this sensor rather than fail the whole section.
-                continue
+                reading = None
+        service = _sensor_service(sensortype, {"role": role, "descr": descr, "reading": reading})
+        item_counts[(service, descr)] += 1
+        item_counts[(sensortype_id, descr)] += 1
+        if sensorstate == "1" and reading is None:
+            # Skip this sensor rather than fail the whole section.
+            continue
 
         entity_parsed.setdefault(sensortype_id, {})
         dev_state = _ENTITY_STATES.get(sensorstate, (State.UNKNOWN, f"unknown[{sensorstate}]"))
 
-        role, interface = _resolve_sensor_role(
-            sensor_id, measured_entity, entities, if_admin_states
-        )
         sensor_attrs = {
             "descr": descr,
             "raw_dev_state": sensorstate,
@@ -320,6 +333,13 @@ def _parse_cisco_sensor(string_table):
         # Keep a sensor that is not ok(1) too: its service reports the device
         # status instead of vanishing.
         entity_parsed[sensortype_id].setdefault(sensor_id, sensor_attrs)
+
+    for sensortype_id, sensors in entity_parsed.items():
+        for sensor_id, sensor_attrs in sensors.items():
+            descr = sensor_attrs["descr"]
+            service = _sensor_service(_SENSOR_TYPES[sensortype_id], sensor_attrs)
+            if item_counts[(service, descr)] > 1 or item_counts[(sensortype_id, descr)] > 1:
+                sensor_attrs["descr"] = f"{descr} {sensor_id}"
 
     # 5. Parse ENVMON temperatures
     found_temp_sensors = {

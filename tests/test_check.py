@@ -395,6 +395,53 @@ def test_obsolete_envmon_item_when_entity_sensor_has_the_same_index(p):
     ]
 
 
+# A port whose two lanes report in different units, one in dBm and one in
+# watts, under the same name; both go to "Cisco DOM". Next to it a power
+# module and a port that share the name of a watts sensor.
+MIXED_ENTITIES = [
+    ["1",    "Chassis",               "",                   "0",    "3"],
+    ["6000", "Transceiver",           "Ethernet1/9",        "1",    "10"],
+    ["6001", "Transmit Power Sensor", "Ethernet1/9 Lane 1", "6000", "8"],
+    ["6002", "Transmit Power Sensor", "Ethernet1/9 Lane 1", "6000", "8"],
+    ["6003", "Power Sensor",          "Lane 2",             "6000", "8"],
+    ["2375681", "3kW AC Power Module", "0/PT0-PM0",         "1",    "6"],
+    ["2375950", "Power Sensor",       "Lane 2",             "2375681", "8"],
+]
+MIXED_SENSORS = [
+    ["6001", "14", "8", "0", "-2213", "1", "6000"],         # -2.213 dBm
+    ["6002", "6",  "8", "5", "58700", "1", "6000"],         # 0.587 mW
+    ["6003", "6",  "8", "5", "58900", "1", "6000"],         # 0.589 mW
+    ["2375950", "6", "9", "2", "127037", "1", "2375681"],   # 1270.37 W
+]
+MIXED_IFACES = [["Ethernet1/9", "1"]]
+
+
+def test_dbm_and_watts_optics_with_the_same_item_get_their_index(p):
+    section = p._parse_cisco_sensor([MIXED_ENTITIES, MIXED_SENSORS, [], [], MIXED_IFACES])
+    tx = "Transmit Power Sensor - Ethernet1/9 Lane 1"
+    assert _items(p._discover_dom(section)) == sorted(
+        [f"{tx} 6001", f"{tx} 6002", "Power Sensor - Lane 2 6003"]
+    )
+    dbm = _metrics(p._check_dom(f"{tx} 6001", {}, section))
+    watts = _metrics(p._check_dom(f"{tx} 6002", {}, section))
+    assert dbm["oposs_cisco_output_signal_power_dbm"].value == pytest.approx(-2.213)
+    assert watts["oposs_cisco_output_signal_power_dbm"].value == pytest.approx(-2.313, abs=1e-3)
+    reverse = p._parse_cisco_sensor(
+        [MIXED_ENTITIES[::-1], MIXED_SENSORS[::-1], [], [], MIXED_IFACES]
+    )
+    assert _items(p._discover_dom(reverse)) == _items(p._discover_dom(section))
+
+
+def test_optic_and_power_module_with_the_same_name_are_both_kept(p):
+    # Both report watts and share the name; each keeps a service.
+    section = p._parse_cisco_sensor([MIXED_ENTITIES, MIXED_SENSORS, [], [], MIXED_IFACES])
+    assert "Power Sensor - Lane 2 6003" in _items(p._discover_dom(section))
+    assert _items(p._discover_power(section)) == ["Power Sensor - Lane 2 2375950"]
+    assert _metrics(p._check_power("Power Sensor - Lane 2 2375950", {}, section))[
+        "oposs_cisco_power_w"
+    ].value == pytest.approx(1270.37)
+
+
 # ---------------------------------------------------------------------------
 # Temperature
 # ---------------------------------------------------------------------------

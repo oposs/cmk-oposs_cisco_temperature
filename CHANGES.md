@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   appended, for example "Cisco Temp Temp Sensor - Inlet 2201"; services
   whose name is unique keep it. Affected hosts need a service discovery:
   the old shared service goes away and its history is not carried over.
+- A port whose lanes report optical power in different units, one in dBm
+  and one in watts, under the same name showed one "Cisco DOM" service, and
+  the other lane was not monitored. Now each lane gets its own service with
+  its sensor index appended.
 
 ## 0.5.0 - 2026-11-11
 ### Changed
