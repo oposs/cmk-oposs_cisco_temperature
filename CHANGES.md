@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   appended, for example "Cisco Temp Temp Sensor - Inlet 2201"; services
   whose name is unique keep it. Affected hosts need a service discovery:
   the old shared service goes away and its history is not carried over.
+- A port whose lanes report optical power in different units, one in dBm
+  and one in watts, under the same name showed one "Cisco DOM" service, and
+  the other lane was not monitored. Now each lane gets its own service with
+  its sensor index appended.
+- An ENVMON temperature sensor named like an entity temperature sensor,
+  or like another ENVMON sensor, showed one "Cisco Temp" service, and the
+  other sensor was not monitored. Now each gets its own service: the entity
+  sensor with its index appended, the ENVMON sensor with " ENVMON" and its
+  index, for example "Cisco Temp Inlet ENVMON 1".
+- A "Cisco Temp" service named exactly like the description of an ENVMON
+  sensor that the plugin had matched to another entity sensor showed
+  "Sensor obsolete, please rediscover" instead of its temperature. It now
+  reports its sensor.
 
 ## 0.5.0 - 2026-11-11
 ### Changed

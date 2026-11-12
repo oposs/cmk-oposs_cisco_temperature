@@ -196,6 +196,15 @@ def _watts_sensor_role(attrs):
     return "psu"
 
 
+def _sensor_service(sensortype, attrs):
+    """Name the service a sensor ends up in: "temp", "dom" or "power"."""
+    if sensortype == "celsius":
+        return "temp"
+    if sensortype == "dBm" or _watts_sensor_role(attrs) == "optical":
+        return "dom"
+    return "power"
+
+
 # ---------------------------------------------------------------------------
 # Parse function
 # ---------------------------------------------------------------------------
@@ -248,16 +257,15 @@ def _parse_cisco_sensor(string_table):
         thresholds.setdefault(sensor_id, []).append(row[1])
 
     # 4. Parse entity sensors (CISCO-ENTITY-SENSOR-MIB)
-    #    Sensors of one type that share a description (and name, if any)
-    #    would share an item, so every member of such a group gets its index
-    #    appended; a sensor whose item is unique keeps it. The group is
-    #    counted over all rows, whatever their status or value, so that a
-    #    name does not change when a sibling sensor fails.
-    item_counts = Counter(
-        (row[1], descriptions.get(row[0], row[0]))
-        for row in state_info
-        if _SENSOR_TYPES.get(row[1]) in ("dBm", "celsius", "watts")
-    )
+    #    Sensors that share a description (and name, if any) and end up in
+    #    the same service would share an item, so every member of such a
+    #    group gets its index appended; a sensor whose item is unique keeps
+    #    it. The group is counted over all rows, whatever their status, so
+    #    that a name does not change when a sibling sensor fails. It is
+    #    counted per service, as "Cisco DOM" holds both dBm and optical watts
+    #    sensors, and per type, as the section keeps optical and power supply
+    #    watts sensors in one table.
+    item_counts = Counter()
     entity_parsed = {}
     for (
         sensor_id,
@@ -275,9 +283,12 @@ def _parse_cisco_sensor(string_table):
         descr = descriptions.get(sensor_id, sensor_id)
         if not descr:
             continue
-        if item_counts[(sensortype_id, descr)] > 1:
-            descr = f"{descr} {sensor_id}"
 
+        role, interface = _resolve_sensor_role(
+            sensor_id, measured_entity, entities, if_admin_states
+        )
+
+        reading = None
         if sensorstate == "1":
             try:
                 factor = 10.0 ** (_SCALE_EXPONENTS.get(scalecode, 0) - _finite_float(magnitude))
@@ -285,15 +296,17 @@ def _parse_cisco_sensor(string_table):
                 if not math.isfinite(reading):
                     raise ValueError(reading)
             except (ValueError, OverflowError):
-                # Skip this sensor rather than fail the whole section.
-                continue
+                reading = None
+        service = _sensor_service(sensortype, {"role": role, "descr": descr, "reading": reading})
+        item_counts[(service, descr)] += 1
+        item_counts[(sensortype_id, descr)] += 1
+        if sensorstate == "1" and reading is None:
+            # Skip this sensor rather than fail the whole section.
+            continue
 
         entity_parsed.setdefault(sensortype_id, {})
         dev_state = _ENTITY_STATES.get(sensorstate, (State.UNKNOWN, f"unknown[{sensorstate}]"))
 
-        role, interface = _resolve_sensor_role(
-            sensor_id, measured_entity, entities, if_admin_states
-        )
         sensor_attrs = {
             "descr": descr,
             "raw_dev_state": sensorstate,
@@ -321,22 +334,44 @@ def _parse_cisco_sensor(string_table):
         # status instead of vanishing.
         entity_parsed[sensortype_id].setdefault(sensor_id, sensor_attrs)
 
-    # 5. Parse ENVMON temperatures
+    # 5. ENVMON temperatures (CISCO-ENVMON-MIB). A row with the index of an
+    #    ok entity temperature sensor is that sensor: it takes the entity
+    #    item, and the item of its own description stays behind as obsolete.
+    #    Any other row is named by its description and counts towards the
+    #    entity temperature groups above; a colliding row gets " ENVMON
+    #    <index>" appended, as the ENVMON and entity indexes may coincide.
     found_temp_sensors = {
         sensor_id: attrs
         for sensor_id, attrs in entity_parsed.get("8", {}).items()
         if attrs["raw_dev_state"] == "1"
     }
+    envmon_rows = []
+    for sensor_id, statustext, temp, max_temp, state in perfstuff:
+        own_item = _cisco_sensor_item(statustext, sensor_id)
+        matched = sensor_id in descriptions and sensor_id in found_temp_sensors
+        if not matched:
+            item_counts[("temp", own_item)] += 1
+        envmon_rows.append((sensor_id, own_item, matched, temp, max_temp, state))
+
+    for sensortype_id, sensors in entity_parsed.items():
+        for sensor_id, sensor_attrs in sensors.items():
+            descr = sensor_attrs["descr"]
+            service = _sensor_service(_SENSOR_TYPES[sensortype_id], sensor_attrs)
+            if item_counts[(service, descr)] > 1 or item_counts[(sensortype_id, descr)] > 1:
+                sensor_attrs["descr"] = f"{descr} {sensor_id}"
+
     parsed = {}
     temp_sensors = parsed.setdefault("8", {})
+    obsolete_items = []
 
-    for sensor_id, statustext, temp, max_temp, state in perfstuff:
-        if sensor_id in descriptions and sensor_id in found_temp_sensors:
+    for sensor_id, own_item, matched, temp, max_temp, state in envmon_rows:
+        if matched:
             item = found_temp_sensors[sensor_id]["descr"]
-            prev_description = _cisco_sensor_item(statustext, sensor_id)
-            temp_sensors[prev_description] = {"obsolete": True}
+            obsolete_items.append(own_item)
+        elif item_counts[("temp", own_item)] > 1:
+            item = f"{own_item} ENVMON {sensor_id}"
         else:
-            item = _cisco_sensor_item(statustext, sensor_id)
+            item = own_item
 
         sensor_attrs = {
             "raw_dev_state": state,
@@ -357,6 +392,10 @@ def _parse_cisco_sensor(string_table):
     for sensor_type, sensors in entity_parsed.items():
         for sensor_attrs in sensors.values():
             parsed.setdefault(sensor_type, {}).setdefault(sensor_attrs["descr"], sensor_attrs)
+
+    # 7. An obsolete item yields to a sensor that is named the same.
+    for item in obsolete_items:
+        temp_sensors.setdefault(item, {"obsolete": True})
 
     return parsed
 
