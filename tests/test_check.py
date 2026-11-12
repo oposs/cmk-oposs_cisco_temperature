@@ -442,6 +442,72 @@ def test_optic_and_power_module_with_the_same_name_are_both_kept(p):
     ].value == pytest.approx(1270.37)
 
 
+def test_envmon_and_entity_temperature_with_the_same_item_are_both_monitored(p):
+    entities = [
+        ["1",    "Chassis",     "",       "0", "3"],
+        ["1006", "Inlet",       "",       "1", "8"],
+        ["1007", "Temp Sensor", "Outlet", "1", "8"],
+    ]
+    sensors = [
+        ["1006", "8", "9", "0", "41", "1", "0"],
+        ["1007", "8", "9", "0", "45", "1", "0"],
+    ]
+    envmon = [
+        ["1", "Inlet, GREEN",   "29", "60", "1"],
+        ["1006", "Inlet, GREEN", "30", "60", "1"],
+        ["7", "Exhaust, GREEN", "33", "60", "1"],
+    ]
+    entities_without_1006 = [row for row in entities if row[0] != "1006"]
+    sensors_without_1006 = [row for row in sensors if row[0] != "1006"]
+    # without the entity sensor, the two ENVMON rows collide with each other
+    only_envmon = p._parse_cisco_sensor(
+        [entities_without_1006, sensors_without_1006, [], envmon, []]
+    )
+    assert _items(p._discover_temperature(only_envmon)) == sorted(
+        ["Exhaust", "Inlet ENVMON 1", "Inlet ENVMON 1006", "Temp Sensor - Outlet"]
+    )
+    # with an entity sensor of the same name, ENVMON 1006 is that sensor
+    section = p._parse_cisco_sensor([entities, sensors, [], envmon, []])
+    assert _items(p._discover_temperature(section)) == sorted(
+        ["Exhaust", "Inlet 1006", "Inlet ENVMON 1", "Temp Sensor - Outlet"]
+    )
+    reading = {
+        item: _metrics(p._check_temperature(item, {}, section))["oposs_cisco_temperature"].value
+        for item in ("Inlet 1006", "Inlet ENVMON 1", "Exhaust", "Temp Sensor - Outlet")
+    }
+    assert reading == {
+        "Inlet 1006": 30, "Inlet ENVMON 1": 29, "Exhaust": 33, "Temp Sensor - Outlet": 45.0,
+    }
+    reverse = p._parse_cisco_sensor([entities[::-1], sensors[::-1], [], envmon[::-1], []])
+    assert set(reverse["8"]) == set(section["8"])
+
+
+def test_envmon_suffix_differs_from_the_entity_suffix(p):
+    # A broken entity sensor does not claim the ENVMON row with its index, so
+    # both rows are "Inlet" with index 5000; the index alone would not tell
+    # them apart.
+    entities = [["5000", "Inlet", "", "1", "8"]]
+    sensors = [["5000", "8", "9", "0", "0", "3", "0"]]   # nonoperational(3)
+    envmon = [["5000", "Inlet, GREEN", "31", "60", "1"]]
+    section = p._parse_cisco_sensor([entities, sensors, [], envmon, []])
+    assert sorted(section["8"]) == ["Inlet 5000", "Inlet ENVMON 5000"]
+    assert _items(p._discover_temperature(section)) == ["Inlet ENVMON 5000"]
+    assert list(p._check_temperature("Inlet 5000", {}, section)) == [
+        Result(state=State.UNKNOWN, summary="Status: non-operational")
+    ]
+
+
+def test_envmon_text_equal_to_its_entity_item_is_not_obsolete(p):
+    # An ENVMON row matched to an entity sensor named exactly like the ENVMON
+    # text: the one service must report the sensor, not "obsolete".
+    entities = [["5000", "Inlet", "", "1", "8"]]
+    sensors = [["5000", "8", "9", "0", "31", "1", "0"]]
+    envmon = [["5000", "Inlet, GREEN", "31", "60", "1"]]
+    section = p._parse_cisco_sensor([entities, sensors, [], envmon, []])
+    assert _items(p._discover_temperature(section)) == ["Inlet"]
+    assert _worst(p._check_temperature("Inlet", {}, section)) is State.OK
+
+
 # ---------------------------------------------------------------------------
 # Temperature
 # ---------------------------------------------------------------------------

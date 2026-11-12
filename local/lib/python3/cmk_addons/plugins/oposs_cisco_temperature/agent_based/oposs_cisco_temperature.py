@@ -334,6 +334,25 @@ def _parse_cisco_sensor(string_table):
         # status instead of vanishing.
         entity_parsed[sensortype_id].setdefault(sensor_id, sensor_attrs)
 
+    # 5. ENVMON temperatures (CISCO-ENVMON-MIB). A row with the index of an
+    #    ok entity temperature sensor is that sensor: it takes the entity
+    #    item, and the item of its own description stays behind as obsolete.
+    #    Any other row is named by its description and counts towards the
+    #    entity temperature groups above; a colliding row gets " ENVMON
+    #    <index>" appended, as the ENVMON and entity indexes may coincide.
+    found_temp_sensors = {
+        sensor_id: attrs
+        for sensor_id, attrs in entity_parsed.get("8", {}).items()
+        if attrs["raw_dev_state"] == "1"
+    }
+    envmon_rows = []
+    for sensor_id, statustext, temp, max_temp, state in perfstuff:
+        own_item = _cisco_sensor_item(statustext, sensor_id)
+        matched = sensor_id in descriptions and sensor_id in found_temp_sensors
+        if not matched:
+            item_counts[("temp", own_item)] += 1
+        envmon_rows.append((sensor_id, own_item, matched, temp, max_temp, state))
+
     for sensortype_id, sensors in entity_parsed.items():
         for sensor_id, sensor_attrs in sensors.items():
             descr = sensor_attrs["descr"]
@@ -341,22 +360,18 @@ def _parse_cisco_sensor(string_table):
             if item_counts[(service, descr)] > 1 or item_counts[(sensortype_id, descr)] > 1:
                 sensor_attrs["descr"] = f"{descr} {sensor_id}"
 
-    # 5. Parse ENVMON temperatures
-    found_temp_sensors = {
-        sensor_id: attrs
-        for sensor_id, attrs in entity_parsed.get("8", {}).items()
-        if attrs["raw_dev_state"] == "1"
-    }
     parsed = {}
     temp_sensors = parsed.setdefault("8", {})
+    obsolete_items = []
 
-    for sensor_id, statustext, temp, max_temp, state in perfstuff:
-        if sensor_id in descriptions and sensor_id in found_temp_sensors:
+    for sensor_id, own_item, matched, temp, max_temp, state in envmon_rows:
+        if matched:
             item = found_temp_sensors[sensor_id]["descr"]
-            prev_description = _cisco_sensor_item(statustext, sensor_id)
-            temp_sensors[prev_description] = {"obsolete": True}
+            obsolete_items.append(own_item)
+        elif item_counts[("temp", own_item)] > 1:
+            item = f"{own_item} ENVMON {sensor_id}"
         else:
-            item = _cisco_sensor_item(statustext, sensor_id)
+            item = own_item
 
         sensor_attrs = {
             "raw_dev_state": state,
@@ -377,6 +392,10 @@ def _parse_cisco_sensor(string_table):
     for sensor_type, sensors in entity_parsed.items():
         for sensor_attrs in sensors.values():
             parsed.setdefault(sensor_type, {}).setdefault(sensor_attrs["descr"], sensor_attrs)
+
+    # 7. An obsolete item yields to a sensor that is named the same.
+    for item in obsolete_items:
+        temp_sensors.setdefault(item, {"obsolete": True})
 
     return parsed
 
