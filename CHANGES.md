@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 ### Fixed
+
+## 0.5.1 - 2026-11-12
+### Fixed
 - Two sensors with the same description and name, for example "Temp
   Sensor - Inlet" on two line cards, showed up as one "Cisco Temp",
   "Cisco DOM" or "Cisco Power" service, and the other sensor was not
