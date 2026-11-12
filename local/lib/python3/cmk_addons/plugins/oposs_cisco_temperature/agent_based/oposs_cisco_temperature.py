@@ -39,7 +39,7 @@ from cmk.agent_based.v2 import (
 
 # Create release PR writes the released version here (version_files in
 # .github/repo-infra.json)
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 # ---------------------------------------------------------------------------
 # Constants
